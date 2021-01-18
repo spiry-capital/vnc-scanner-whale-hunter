@@ -853,7 +853,7 @@ class NetTools:
 		
 	def int2ip(self, integer):
 		integer = "%08x" % (integer)
-	   	return "%i.%i.%i.%i" % (int(integer[0:2],16),int(integer[2:4],16),int(integer[4:6],16),int(integer[6:8],16))
+		return "%i.%i.%i.%i" % (int(integer[0:2],16),int(integer[2:4],16),int(integer[4:6],16),int(integer[6:8],16))
 
 class Interface:
 
