@@ -9,8 +9,8 @@ import time
 from sys import stdout
 from struct import pack, unpack
 
-VERSION = "0x001"
-CODENAME = "Whale Hunter 0.1"
+VERSION = "0.0.1"
+CODENAME = "VNC Hunter 0.0.1"
 DEFAULT_CONFIG = dict()
 CONFIG = dict()
 FILES = dict()
@@ -778,10 +778,10 @@ class Display:
 
 	def banner(self):
 		banner = list()
-		banner.append("|####> - VNC Scanner & Bruteforcer - %s - %s - <####|" % (VERSION, CODENAME))
-		banner.append("Scan Threads: %s <-> Scan Timeout: %s <-> Scan Port: %s" % (CONFIG['scan_threads'], CONFIG['scan_timeout'], CONFIG['scan_port']))
-		banner.append("Brute Threads: %s <-> Brute Timeout: %s <-> Auto Brute: %s" % (CONFIG['brute_threads'], CONFIG['brute_timeout'], CONFIG['auto_brute']))
-		banner.append("Scan Range: %s <-> Auto Save: %s" % (CONFIG['scan_range'], CONFIG['auto_save']))
+		banner.append("|>VNC Explorer - %s - %s - <|" % (VERSION, CODENAME))
+		banner.append("|>Scan Threads: %s <-> Scan Timeout: %s <-> Scan Port: %s" % (CONFIG['scan_threads'], CONFIG['scan_timeout'], CONFIG['scan_port']))
+		banner.append("|>Brute Threads: %s <-> Brute Timeout: %s <-> Auto Brute: %s" % (CONFIG['brute_threads'], CONFIG['brute_timeout'], CONFIG['auto_brute']))
+		banner.append("|>Scan Range: %s <-> Auto Save: %s" % (CONFIG['scan_range'], CONFIG['auto_save']))
 		stdout.write("\n")
 		for line in banner:
 			stdout.write(line.center(self.posvals()))
