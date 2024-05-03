@@ -1101,6 +1101,7 @@ class ScanEngine:
 class BruteEngine:
     def __init__(self):
         self.results = None
+        self.processed_ips = set()
         self.passwords = None
         self.servers = None
         self.current_password = None
@@ -1117,6 +1118,7 @@ class BruteEngine:
         self.results = open(FILES['results'], 'a')
         self.passwords = list()
         self.servers = list()
+        self.processed_ips.clear()
         self.get_passwords()
         self.get_servers()
 
@@ -1146,18 +1148,19 @@ class BruteEngine:
         for password in self.passwords:
             self.current_password = password
             for server in self.servers[:]:  # use slicing to make a copy for safe iteration
-                queue.put((server, password))
+                if server[0] not in self.processed_ips:
+                    queue.put((server, password))
 
         queue.join()
 
         self.output_kill = True
         output_thread.join()
         self.results.close()
+
         sys.stdout.write("\n\nDONE! Check \"output/results.txt\" or type \"show results\"!\n\n")
 
         for thread in threads:
             thread.join()
-
 
     def worker(self, queue):
         while True:
@@ -1168,18 +1171,19 @@ class BruteEngine:
     def brute_thread(self, server, password):
         semaphore.acquire()
         try:
-            # Assuming you've properly implemented RFBProtocol
             rfb = RFBProtocol(server[0], password, server[1], CONFIG['brute_timeout'])
             rfb.connect()
             rfb.close()
             with lock:
                 self.attempt_count += 1
                 if rfb.RFB and rfb.connected:
-                    result_data = "{}:{}-{}-[{}]\n".format(server[0], server[1], password, rfb.name)
-                    self.results.write(result_data)
-                    self.results.flush()
-                    self.success_count += 1
-                    self.servers.remove(server)
+                    if server[0] not in self.processed_ips:
+                        result_data = "{}:{}-{}-[{}]\n".format(server[0], server[1], password, rfb.name)
+                        self.results.write(result_data)
+                        self.results.flush()
+                        self.processed_ips.add(server[0])
+                        self.success_count += 1
+                        self.servers.remove(server)
         except Exception as e:
             with lock:
                 self.exception_count += 1
