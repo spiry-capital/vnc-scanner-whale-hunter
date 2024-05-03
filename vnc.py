@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Imports
 import sys
 import os
@@ -9,10 +10,20 @@ import pickle
 import time
 from sys import stdout
 from struct import pack, unpack
-
+# Define the colors
+RED = "\033[31m"
+GREEN = "\033[32m"
+BLUE = "\033[34m"
+CYAN = "\033[36m"
+YELLOW = "\033[33m"
+MAGENTA = "\033[35m"
+DEEP_PURPLE = "\033[35m"
+LIGHT_CYAN = "\033[96m"
+BOLD = "\033[1m"
+RESET_COLOR = "\033[0m"
 # Constants and configurations
-VERSION = "0.0.1"
-CODENAME = "VNC Hunter 0.0.1"
+VERSION = "0.0.2"
+CODENAME = "HUNTER"
 
 # Disclaimer regarding the usage of this tool
 DISCLAIMER = """
@@ -36,9 +47,9 @@ DEFAULT_PASSWORDS = """
 DEFAULT_CONFIG = {
     'scan_range': "119.*.*.*",
     'scan_port': "5900",
-    'scan_timeout': "5",
+    'scan_timeout': "10",
     'scan_threads': "4000",
-    'brute_threads': "2000",
+    'brute_threads': "3000",
     'brute_timeout': "10",
     'auto_save': "true",
     'auto_brute': "true"
@@ -759,14 +770,10 @@ class Display:
 			except:
 				return None
 		return int(cr[1]), int(cr[0])
-	def posvals(self,val='x'):
-		self.size = self.getTerminalSize()
-		self.tx = self.size[0]
-		self.ty = self.size[1]
-		if val=='x':
-			return self.tx
-		else:
-			return self.ty
+	def posvals(self, line_length):
+
+		width = max(80, line_length + 4)  # ensuring at least a default terminal width
+		return (width - line_length) // 2
 
 
 	def clearscreen(self):
@@ -780,21 +787,31 @@ class Display:
 
 	def banner(self):
 		banner = list()
-		banner.append("|>VNC Explorer - %s - %s - <|" % (VERSION, CODENAME))
-		banner.append("|>Scan Threads: %s <-> Scan Timeout: %s <-> Scan Port: %s" % (CONFIG['scan_threads'], CONFIG['scan_timeout'], CONFIG['scan_port']))
-		banner.append("|>Brute Threads: %s <-> Brute Timeout: %s <-> Auto Brute: %s" % (CONFIG['brute_threads'], CONFIG['brute_timeout'], CONFIG['auto_brute']))
-		banner.append("|>Scan Range: %s <-> Auto Save: %s" % (CONFIG['scan_range'], CONFIG['auto_save']))
-		stdout.write("\n")
-		for line in banner:
-			stdout.write(line.center(self.posvals()))
-			if 'nVNC' in line:
-				stdout.write('\n')
-		stdout.write("\n\n")
+		banner_lines = []
+		banner_lines.append(BOLD + GREEN + "VNC " + CYAN + CODENAME + " - " + VERSION + RESET_COLOR)
+		banner_lines.append(RED + "Threads:" + YELLOW + " Scan[{}], Brute[{}]".format(CONFIG['scan_threads'], CONFIG['brute_threads']) + RESET_COLOR)
+		banner_lines.append(BLUE + "Timeouts:" + MAGENTA + " Scan[{}], Brute[{}]".format(CONFIG['scan_timeout'], CONFIG['brute_timeout']) + RESET_COLOR)
+		banner_lines.append(CYAN + "Features: " + GREEN + "Auto-Brute[{}], Auto-Save[{}]".format(CONFIG['auto_brute'], CONFIG['auto_save']) + RESET_COLOR)
+		banner_lines.append(DEEP_PURPLE + "Network: " + LIGHT_CYAN + "{}".format(CONFIG['scan_range']) + RESET_COLOR)
+
+		max_line_length = max(len(line) - len(RESET_COLOR) * line.count(RESET_COLOR) for line in banner_lines)  # Adjust for color codes  # Avoid counting ANSI escape sequences
+		border = GREEN + '+' + '-' * (max_line_length + 2) + '+' + RESET_COLOR
+		# Print the banner
+		stdout.write("\n" + border + "\n")
+		for line in banner_lines:
+			stdout.write(line + "\n")
+			if 'VNC' in line:
+				stdout.write(' ' * (max_line_length + 4) + "\n")
+		stdout.write(border + "\n\n")
 
 
-	def disclaimer(self):
-		for line in DISCLAIMER.split('\n'):
-			stdout.write(line.center(self.posvals()))
+def disclaimer(self):
+        # Disclaimer text
+        DISCLAIMER = "Unauthorized access is forbidden. All activities are logged."
+        DEEP_PURPLE = "\033[35m"
+        RESET_COLOR = "\033[0m"
+        
+        print(DEEP_PURPLE + DISCLAIMER.center(40) + RESET_COLOR)
 
 
 class NetTools:
