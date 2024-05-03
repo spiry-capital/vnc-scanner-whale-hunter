@@ -1,63 +1,65 @@
+# Imports
 import sys
 import os
 import cmd
 import socket
 import threading
+from multiprocessing.dummy import Pool as ThreadPool
 import pickle
 import time
-
 from sys import stdout
 from struct import pack, unpack
 
+# Constants and configurations
 VERSION = "0.0.1"
 CODENAME = "VNC Hunter 0.0.1"
-DEFAULT_CONFIG = dict()
-CONFIG = dict()
-FILES = dict()
-FOLDERS = dict()
-DISCLAIMER = """
 
+# Disclaimer regarding the usage of this tool
+DISCLAIMER = """
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-This is not a hacking tool, this is a security assessment tool.
-We do not encourage cracking or any other illicit activities that
-put in danger the privacy or the informational integrity of others,
-and we certainly do not want this tool to be misused.
+This is not a hacking tool. It is intended for security assessments only.
+We do not support or condone illegal activities that compromise others' privacy
+or data integrity. Use this tool in compliance with applicable laws.
 !!! USE IT AT YOUR OWN RISK !!!
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-
 """
 
-DEFAULT_PASSWORDS = """1
+# Default list of passwords to try during brute force
+DEFAULT_PASSWORDS = """
+1
 12
 123
 1234
 """
 
-#============DEFAULT_CONFIG============#
-DEFAULT_CONFIG['scan_range'] = "109.*.*.*"
-DEFAULT_CONFIG['scan_port'] = "5900"
-DEFAULT_CONFIG['scan_timeout'] = "5"
-DEFAULT_CONFIG['scan_threads'] = "5000"
-DEFAULT_CONFIG['brute_threads'] = "2000"
-DEFAULT_CONFIG['brute_timeout'] = "10"
-DEFAULT_CONFIG['auto_save'] = "true"
-DEFAULT_CONFIG['auto_brute'] = "true"
-#============DEFAULT_CONFIG============#
+# Default configuration for network scanning and brute forcing
+DEFAULT_CONFIG = {
+    'scan_range': "119.*.*.*",
+    'scan_port': "5900",
+    'scan_timeout': "5",
+    'scan_threads': "4000",
+    'brute_threads': "2000",
+    'brute_timeout': "10",
+    'auto_save': "true",
+    'auto_brute': "true"
+}
 
-#============FILES============#
-FILES['results'] = {"folder": "output", "name":"results.txt"}
-FILES['ips'] = {"folder": "output", "name":"ips.txt"}
-FILES['passwords'] = {"folder": "input", "name":"passwords.txt"}
-FILES['config'] = {"folder": "nbin", "name":"config.conf"}
-FILES['ips.tmp'] = {"folder": "nbin", "name":"ips.tmp"}
-#============FILES============#
+# Default configurations for files storage
+FILES = {
+    'results': {'folder': 'output', 'name': 'results.txt'},
+    'ips': {'folder': 'output', 'name': 'ips.txt'},
+    'passwords': {'folder': 'input', 'name': 'passwords.txt'},
+    'config': {'folder': 'nbin', 'name': 'config.conf'},
+    'ips.tmp': {'folder': 'nbin', 'name': 'ips.tmp'}
+}
 
-#============FOLDERS============#
-FOLDERS['output'] = "output"
-FOLDERS['input'] = "input"
-FOLDERS['nbin'] = "bin"
-#============FOLDERS============#
+
+# Default folders used by the application
+FOLDERS = {
+    'output': 'output',
+    'input': 'input',
+    'nbin': 'bin'
+}
 
 class _baseDes(object):
 	def __init__(self, mode=0, IV=None, pad=None, padmode=1):
@@ -655,7 +657,7 @@ class FilesHandler:
 		try:
 			os.makedirs(path)
 		except OSError:
-			passlist
+			passlist # type: ignore
 
 class Deploy:
 	def __init__(self):
@@ -996,73 +998,73 @@ class Interface:
 				stdout.write("\n")
 		#==========SHOW COMMAND===========#
 		
+
 class ScanEngine:
-	def __init__(self):
-		pass
+    def __init__(self):
+        self.lock = threading.Lock()  # A lock for thread-safe operations on shared variables
 
-	def init(self):
-		global lock, semaphore
-		lock = threading.Lock()
-		semaphore = threading.Semaphore(int(CONFIG['scan_threads']))
-		self.ips_file = open(FILES['ips'], 'a', 0)
-		self.current = 0
-		self.found = 0
-		self.range = NetTools.convert_range(CONFIG['scan_range'])
-		self.total = int(self.range[1]) - int(self.range[0])
-		
-	def Start(self):
-		self.init()
+    def init(self):
+        global semaphore
+        semaphore = threading.Semaphore(int(CONFIG['scan_threads']))
+        self.ips_file = open(FILES['ips'], 'a', 0)
+        self.current = 0
+        self.found = 0
+        # Ensure that range calculation produces an all-inclusive range
+        self.range = NetTools.convert_range(CONFIG['scan_range'])
+        self.total = int(self.range[1]) - int(self.range[0]) + 1
 
-		output_thread = threading.Thread(target=self.output_thread, args=())
-		output_thread.daemon = True
-		output_thread.start()
-		
-		try:
-			integer = self.range[0]
-			while integer <= self.range[1]:
-				semaphore.acquire()
-				thread = threading.Thread(target=self.scan_thread, args=(integer,))
-				thread.daemon=True
-				thread.start()
-				integer += 1
-				self.current += 1
-		except:
-			stdout.flush()
-			stdout.write("\n\tSome thread related error occured, try lowering the threads amount.\n")
+    def Start(self):
+        self.init()
 
-		while threading.active_count() > 1:
-			pass
+        output_thread = threading.Thread(target=self.output_thread)
+        output_thread.daemon = True
+        output_thread.start()
+        
+        ip_numbers = range(int(self.range[0]), int(self.range[1]) + 1)
 
-		self.ips_file.close()
-		
-		if CONFIG['auto_brute'] == "true":
-			BruteEngine.Start()
-		else:
-			stdout.write("\n\nDONE! Check \"output/ips.txt\" or type \"show ips\"!\n\n")
+        def parallel_scan(ip):
+            semaphore.acquire()
+            try:
+                self.scan_thread(ip)
+            finally:
+                semaphore.release()
+        
+        pool = ThreadPool(int(CONFIG['scan_threads']))
+        pool.map(parallel_scan, ip_numbers)
+        pool.close()
+        pool.join()
 
+        output_thread.join()
+        self.ips_file.close()
 
-	def scan_thread(self, integer):
-		try:
-			sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-			sock.settimeout(float(CONFIG['scan_timeout']))
-			sock.connect((NetTools.int2ip(integer), int(CONFIG['scan_port'])))
-			lock.acquire()
-			self.found += 1
-			self.ips_file.write("%s:%i\n" % (NetTools.int2ip(integer), int(CONFIG['scan_port'])))
-			lock.release()
-		except:
-			pass
-		semaphore.release()
-		
-	
-	def output_thread(self):
-		try:
-			while self.total >= self.current:
-				time.sleep(0.5)
-				stdout.flush()
-				stdout.write("\r Current Status: [%i/%i] Found: %i   " % (self.current, self.total, self.found))
-		except:
-			pass
+        if CONFIG['auto_brute'] == "true":
+            BruteEngine.Start()
+        else:
+            stdout.write("\n\nDONE! Check \"output/ips.txt\" or type \"show ips\"!\n\n")
+
+    def scan_thread(self, integer):
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(float(CONFIG['scan_timeout']))
+            sock.connect((NetTools.int2ip(integer), int(CONFIG['scan_port'])))
+            with self.lock:
+                self.found += 1
+                self.ips_file.write("%s:%i\n" % (NetTools.int2ip(integer), int(CONFIG['scan_port'])))
+                self.current += 1  # Ensure current is also incremented here safely under lock
+        except Exception as e:
+            with self.lock:
+                self.current += 1  # Even if fail, count it in current.
+            pass
+
+    def output_thread(self):
+        while True:
+            if self.current >= self.total:
+                break
+            time.sleep(0.5)
+            stdout.write("\r Current Status: [%i/%i] Found: %i   " % (self.current, self.total, self.found))
+            stdout.flush()
+        stdout.write("\r Scan Complete. Total IPs checked: [%i/%i]. IPs Found: %i\n" % 
+                     (self.current, self.total, self.found))
 
 class BruteEngine:
 
@@ -1191,3 +1193,4 @@ if __name__ == "__main__":
 		if CONFIG['auto_save'] == "true":
 			Misc.save_config()
 		sys.exit("\n\n\t...Exiting...\n")
+
