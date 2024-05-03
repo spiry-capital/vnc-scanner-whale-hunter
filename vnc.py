@@ -21,10 +21,20 @@ DEEP_PURPLE = "\033[35m"
 LIGHT_CYAN = "\033[96m"
 BOLD = "\033[1m"
 RESET_COLOR = "\033[0m"
+
 # Constants and configurations
 VERSION = "0.0.2"
 CODENAME = "HUNTER"
-
+ASCII_TITLE = BOLD + GREEN + r"""
+ .========.
+ ||_______||
+ || ////  ||
+ ||_////  ||
+ '========'
+    ||||
+^^^^^^^^^^ 
+Version {}
+""".format(VERSION) + RESET_COLOR
 # Disclaimer regarding the usage of this tool
 DISCLAIMER = """
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -788,21 +798,22 @@ class Display:
 	def banner(self):
 		banner = list()
 		banner_lines = []
-		banner_lines.append(BOLD + GREEN + "VNC " + CYAN + CODENAME + " - " + VERSION + RESET_COLOR)
-		banner_lines.append(RED + "Threads:" + YELLOW + " Scan[{}], Brute[{}]".format(CONFIG['scan_threads'], CONFIG['brute_threads']) + RESET_COLOR)
-		banner_lines.append(BLUE + "Timeouts:" + MAGENTA + " Scan[{}], Brute[{}]".format(CONFIG['scan_timeout'], CONFIG['brute_timeout']) + RESET_COLOR)
-		banner_lines.append(CYAN + "Features: " + GREEN + "Auto-Brute[{}], Auto-Save[{}]".format(CONFIG['auto_brute'], CONFIG['auto_save']) + RESET_COLOR)
-		banner_lines.append(DEEP_PURPLE + "Network: " + LIGHT_CYAN + "{}".format(CONFIG['scan_range']) + RESET_COLOR)
+		banner_lines.append(ASCII_TITLE)
+		banner_lines.append(BOLD + GREEN + "VNC " + CYAN + CODENAME + RESET_COLOR)
+		banner_lines.append(RED + "THREADS :" + YELLOW + " Scan[{}], Brute[{}]".format(CONFIG['scan_threads'], CONFIG['brute_threads']) + RESET_COLOR)
+		banner_lines.append(BLUE + "TIMEOUTS:" + MAGENTA + " Scan[{}], Brute[{}]".format(CONFIG['scan_timeout'], CONFIG['brute_timeout']) + RESET_COLOR)
+		banner_lines.append(CYAN + "FEATURES: " + GREEN + "Auto-Brute[{}], Auto-Save[{}]".format(CONFIG['auto_brute'], CONFIG['auto_save']) + RESET_COLOR)
+		banner_lines.append(DEEP_PURPLE + "NETWORK : " + LIGHT_CYAN + "{}".format(CONFIG['scan_range']) + RESET_COLOR)
 
 		max_line_length = max(len(line) - len(RESET_COLOR) * line.count(RESET_COLOR) for line in banner_lines)  # Adjust for color codes  # Avoid counting ANSI escape sequences
-		border = GREEN + '+' + '-' * (max_line_length + 2) + '+' + RESET_COLOR
+		border = GREEN + '+' + '#' * (max_line_length + 2) + '+' + RESET_COLOR
 		# Print the banner
-		stdout.write("\n" + border + "\n")
+		stdout.write("\n" + border + "\n\n")
 		for line in banner_lines:
 			stdout.write(line + "\n")
 			if 'VNC' in line:
 				stdout.write(' ' * (max_line_length + 4) + "\n")
-		stdout.write(border + "\n\n")
+		stdout.write(border + "\n")
 
 
 def disclaimer(self):
