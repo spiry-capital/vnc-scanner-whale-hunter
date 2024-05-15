@@ -1136,7 +1136,7 @@ class BruteEngine:
         output_thread.daemon = True
         output_thread.start()
 
-        queue = Queue()
+        queue = Queue(maxsize=10)  # Adding maxsize to control memory usage by limiting queue size
         threads = []
 
         for _ in range(int(CONFIG['brute_threads'])):
@@ -1150,17 +1150,17 @@ class BruteEngine:
             for server in self.servers[:]:  # use slicing to make a copy for safe iteration
                 if server[0] not in self.processed_ips:
                     queue.put((server, password))
+                if queue.full():
+                    time.sleep(1)  # Wait for space to free up in the queue
 
         queue.join()
-
         self.output_kill = True
         output_thread.join()
+        for thread in threads:
+            thread.join()
         self.results.close()
 
         sys.stdout.write("\n\nDONE! Check \"output/results.txt\" or type \"show results\"!\n\n")
-
-        for thread in threads:
-            thread.join()
 
     def worker(self, queue):
         while True:
