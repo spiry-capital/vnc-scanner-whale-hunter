@@ -14,6 +14,7 @@ import time
 from threading import Lock, Semaphore
 from sys import stdout
 from struct import pack, unpack
+from cStringIO import StringIO # type: ignore
 # Define the colors
 RED = "\033[31m"
 GREEN = "\033[32m"
@@ -635,54 +636,47 @@ class MiscFunctions:
 		Files.file_write(FILES['config'], pickle.dumps(CONFIG))
 
 class FilesHandler:
+    def __init__(self):
+        self.sep = os.sep
+        self.root_path = os.getcwd() + self.sep
 
-	def __init__(self):
-		self.sep = os.sep
-		self.root_path = os.getcwd() + self.sep
+    def file_get_contents(self, location):
+        if self.file_exists(location):
+            with open(location) as f:
+                return f.read()
+        else:
+            return False
 
-	def file_get_contents(self, location):
-		if self.file_exists(location):
-			return open(location).read()
-		else:
-			return False
+    def file_write(self, location, data="", mode="w"):
+        if mode == "i":
+            with open(location) as oldf:
+                old_data = oldf.read()
+            with open(location, 'w') as f:
+                f.write(data.rstrip() + '\n' + old_data.rstrip())
+        else:
+            with open(location, mode) as f:
+                f.write(data)
 
-	def file_write(self, location, data="", mode="w"):
-		if mode=="i":
-			oldf = open(location).read()
-			f = open(location, 'w')
-			f.write(data.rstrip() + '\n' + oldf.rstrip())
-			f.close()
-		else:
-			f = open(location, mode)
-			f.write(data)
-			f.close()
+    def file_empty(self, location):
+        try:
+            return os.path.getsize(location) == 0
+        except OSError:
+            return True
 
-	def file_empty(self, location):
-		try:
-			if os.path.getsize(location) > 0:
-				return False
-			else:
-				return True
-		except OSError:
-			return True
+    def file_exists(self, file_path):
+        return os.path.isfile(file_path)
 
-	def file_exists(self, file_path):
-		return os.path.isfile(file_path)
-		
-	def dir_exists(self, dir_path):
-		if os.path.exists(dir_path) and (not os.path.isfile(dir_path)):
-			return True
-		else:
-			return False
+    def dir_exists(self, dir_path):
+        return os.path.exists(dir_path) and not os.path.isfile(dir_path)
 
-	def dirname(self, path):
-		return os.path.dirname(path)
+    def dirname(self, path):
+        return os.path.dirname(path)
 
-	def mkdir(self, path):
-		try:
-			os.makedirs(path)
-		except OSError:
-			passlist # type: ignore
+    def mkdir(self, path):
+        try:
+            os.makedirs(path)
+        except OSError:
+            pass
 
 class Deploy:
 	def __init__(self):
@@ -711,114 +705,113 @@ class Deploy:
 
 
 class Display:
-	def __init__(self):
-		pass
+    def __init__(self):
+        pass
 
-	def delimiter(self, string):
-		stdout.write("\n" + ("-" * len(string)) + "\n")
+    def delimiter(self, string):
+        stdout.write("\n" + ("-" * len(string)) + "\n")
 
+    def getTerminalSize(self):
+        current_os = os.name
+        tuple_xy = None
+        if current_os in ('nt', 'dos', 'ce'):
+            tuple_xy = self._getTerminalSize_windows()
+            if tuple_xy is None:
+                tuple_xy = self._getTerminalSize_tput()
+        if current_os == 'posix':
+            tuple_xy = self._getTerminalSize_linux()
+        if tuple_xy is None:
+            tuple_xy = (80, 25)
+        return tuple_xy
 
+    def _getTerminalSize_windows(self):
+        res = None
+        try:
+            from ctypes import windll, create_string_buffer
+            h = windll.kernel32.GetStdHandle(-12)
+            csbi = create_string_buffer(22)
+            res = windll.kernel32.GetConsoleScreenBufferInfo(h, csbi)
+        except:
+            return None
+        if res:
+            import struct
+            (bufx, bufy, curx, cury, wattr,
+             left, top, right, bottom, maxx, maxy) = struct.unpack("hhhhHhhhhhh", csbi.raw)
+            sizex = right - left + 1
+            sizey = bottom - top + 1
+            return sizex, sizey
+        else:
+            return None
 
-	def getTerminalSize(self):
-		current_os = os.name
-		tuple_xy=None
-		if current_os in ('nt','dos','ce'):
-			tuple_xy = self._getTerminalSize_windows()
-			if tuple_xy is None:
-				tuple_xy = self._getTerminalSize_tput()
-		if current_os == 'posix':
-			tuple_xy = self._getTerminalSize_linux()
-		if tuple_xy is None:
-			tuple_xy = (80, 25)
-		return tuple_xy
+    def _getTerminalSize_tput(self):
+        try:
+            import subprocess
+            proc = subprocess.Popen(["tput", "cols"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+            output = proc.communicate(input=None)
+            cols = int(output[0])
+            proc = subprocess.Popen(["tput", "lines"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+            output = proc.communicate(input=None)
+            rows = int(output[0])
+            return (cols, rows)
+        except:
+            return None
 
-	def _getTerminalSize_windows(self):
-		res=None
-		try:
-			from ctypes import windll, create_string_buffer
-			h = windll.kernel32.GetStdHandle(-12)
-			csbi = create_string_buffer(22)
-			res = windll.kernel32.GetConsoleScreenBufferInfo(h, csbi)
-		except:
-			return None
-		if res:
-			import struct
-			(bufx, bufy, curx, cury, wattr,
-			 left, top, right, bottom, maxx, maxy) = struct.unpack("hhhhHhhhhhh", csbi.raw)
-			sizex = right - left + 1
-			sizey = bottom - top + 1
-			return sizex, sizey
-		else:
-			return None
-	def _getTerminalSize_tput(self):
-		try:
-			import subprocess
-			proc=subprocess.Popen(["tput", "cols"],stdin=subprocess.PIPE,stdout=subprocess.PIPE)
-			output=proc.communicate(input=None)
-			cols=int(output[0])
-			proc=subprocess.Popen(["tput", "lines"],stdin=subprocess.PIPE,stdout=subprocess.PIPE)
-			output=proc.communicate(input=None)
-			rows=int(output[0])
-			return (cols,rows)
-		except:
-			return None
-	def _getTerminalSize_linux(self):
-		def ioctl_GWINSZ(fd):
-			try:
-				import fcntl, termios, struct, os
-				cr = struct.unpack('hh', fcntl.ioctl(fd, termios.TIOCGWINSZ,'1234'))
-			except:
-				return None
-			return cr
-		cr = ioctl_GWINSZ(0) or ioctl_GWINSZ(1) or ioctl_GWINSZ(2)
-		if not cr:
-			try:
-				fd = os.open(os.ctermid(), os.O_RDONLY)
-				cr = ioctl_GWINSZ(fd)
-				os.close(fd)
-			except:
-				pass
-		if not cr:
-			try:
-				cr = (env['LINES'], env['COLUMNS'])
-			except:
-				return None
-		return int(cr[1]), int(cr[0])
-	def posvals(self, line_length):
+    def _getTerminalSize_linux(self):
+        def ioctl_GWINSZ(fd):
+            try:
+                import fcntl, termios, struct, os
+                cr = struct.unpack('hh', fcntl.ioctl(fd, termios.TIOCGWINSZ, '1234'))
+            except:
+                return None
+            return cr
 
-		width = max(80, line_length + 4)  # ensuring at least a default terminal width
-		return (width - line_length) // 2
+        cr = ioctl_GWINSZ(0) or ioctl_GWINSZ(1) or ioctl_GWINSZ(2)
+        if not cr:
+            try:
+                fd = os.open(os.ctermid(), os.O_RDONLY)
+                cr = ioctl_GWINSZ(fd)
+                os.close(fd)
+            except:
+                pass
+        if not cr:
+            try:
+                cr = (env['LINES'], env['COLUMNS'])
+            except:
+                return None
+        return int(cr[1]), int(cr[0])
 
+    def posvals(self, line_length):
+        width = max(80, line_length + 4)  # ensuring at least a default terminal width
+        return (width - line_length) // 2
 
-	def clearscreen(self):
-		if os.name in ("nt", "dos", "ce"):
-			os.system("CLS")
-		elif os.name == "posix":
-			os.system("clear")
-		else:
-			stdout.write("\n"*150)
-		self.banner()
+    def clearscreen(self):
+        if os.name in ("nt", "dos", "ce"):
+            os.system("CLS")
+        elif os.name == "posix":
+            os.system("clear")
+        else:
+            stdout.write("\n" * 150)
+        self.banner()
 
-	def banner(self):
-		banner = list()
-		banner_lines = []
-		banner_lines.append(ASCII_TITLE)
-		banner_lines.append(BOLD + GREEN + "VNC " + CYAN + CODENAME + RESET_COLOR)
-		banner_lines.append(RED + "THREADS :" + YELLOW + " Scan[{}], Brute[{}]".format(CONFIG['scan_threads'], CONFIG['brute_threads']) + RESET_COLOR)
-		banner_lines.append(BLUE + "TIMEOUTS:" + MAGENTA + " Scan[{}], Brute[{}]".format(CONFIG['scan_timeout'], CONFIG['brute_timeout']) + RESET_COLOR)
-		banner_lines.append(CYAN + "FEATURES: " + GREEN + "Auto-Brute[{}], Auto-Save[{}]".format(CONFIG['auto_brute'], CONFIG['auto_save']) + RESET_COLOR)
-		banner_lines.append(DEEP_PURPLE + "NETWORK : " + LIGHT_CYAN + "{}".format(CONFIG['scan_range']) + RESET_COLOR)
+    def banner(self):
+        banner_lines = [
+            ASCII_TITLE,
+            BOLD + GREEN + "VNC " + CYAN + CODENAME + RESET_COLOR,
+            RED + "THREADS :" + YELLOW + " Scan[{}], Brute[{}]".format(CONFIG['scan_threads'], CONFIG['brute_threads']) + RESET_COLOR,
+            BLUE + "TIMEOUTS:" + MAGENTA + " Scan[{}], Brute[{}]".format(CONFIG['scan_timeout'], CONFIG['brute_timeout']) + RESET_COLOR,
+            CYAN + "FEATURES: " + GREEN + "Auto-Brute[{}], Auto-Save[{}]".format(CONFIG['auto_brute'], CONFIG['auto_save']) + RESET_COLOR,
+            DEEP_PURPLE + "NETWORK : " + LIGHT_CYAN + "{}".format(CONFIG['scan_range']) + RESET_COLOR
+        ]
 
-		max_line_length = max(len(line) - len(RESET_COLOR) * line.count(RESET_COLOR) for line in banner_lines)  # Adjust for color codes  # Avoid counting ANSI escape sequences
-		border = GREEN + '+' + '#' * (max_line_length + 2) + '+' + RESET_COLOR
-		# Print the banner
-		stdout.write("\n" + border + "\n\n")
-		for line in banner_lines:
-			stdout.write(line + "\n")
-			if 'VNC' in line:
-				stdout.write(' ' * (max_line_length + 4) + "\n")
-		stdout.write(border + "\n")
+        max_line_length = max(len(line) - len(RESET_COLOR) * line.count(RESET_COLOR) for line in banner_lines)  # Adjust for color codes
+        border = GREEN + '+' + '#' * (max_line_length + 2) + '+' + RESET_COLOR
 
+        stdout.write("\n" + border + "\n\n")
+        for line in banner_lines:
+            stdout.write(line + "\n")
+            if 'VNC' in line:
+                stdout.write(' ' * (max_line_length + 4) + "\n")
+        stdout.write(border + "\n")
 
 def disclaimer(self):
         # Disclaimer text
