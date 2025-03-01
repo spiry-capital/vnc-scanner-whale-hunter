@@ -350,66 +350,38 @@ class des(_baseDes):
 		_baseDes.setKey(self, key)
 		self.__create_sub_keys()
 
+	# Use a list comprehension to convert a string to a bit list
 	def __String_to_BitList(self, data):
-		"""Turn the string data, into a list of bits (1, 0)'s"""
 		if sys.version_info[0] < 3:
 			data = [ord(c) for c in data]
-		l = len(data) * 8
-		result = [0] * l
-		pos = 0
-		for ch in data:
-			i = 7
-			while i >= 0:
-				if ch & (1 << i) != 0:
-					result[pos] = 1
-				else:
-					result[pos] = 0
-				pos += 1
-				i -= 1
+		# For each byte, extract bits from MSB to LSB
+		return [ (ch >> i) & 1 for ch in data for i in range(7, -1, -1) ]
 
-		return result
-
+	# Use a list comprehension to convert a list of bits back to a string
 	def __BitList_to_String(self, data):
-		"""Turn the list of bits -> data, into a string"""
-		result = []
-		pos = 0
-		c = 0
-		while pos < len(data):
-			c += data[pos] << (7 - (pos % 8))
-			if (pos % 8) == 7:
-				result.append(c)
-				c = 0
-			pos += 1
-
+		byte_values = [ sum(bit << (7 - i) for i, bit in enumerate(data[j:j+8]))
+						for j in range(0, len(data), 8) ]
 		if sys.version_info[0] < 3:
-			return ''.join([ chr(c) for c in result ])
+			return ''.join(map(chr, byte_values))
 		else:
-			return bytes(result)
+			return bytes(byte_values)
 
+	# Replace map(lambda ...) with a list comprehension for permuting blocks
 	def __permutate(self, table, block):
-		"""Permutate this block with the specified table"""
-		return list(map(lambda x: block[x], table))
+		return [block[x] for x in table]
 
+	# Optimize sub-key creation using deque rotation
+	from collections import deque
 	def __create_sub_keys(self):
-		"""Create the 16 subkeys K[1] to K[16] from the given key"""
-		key = self.__permutate(des.__pc1, self.__String_to_BitList(self.getKey()))
-		i = 0
-		self.L = key[:28]
-		self.R = key[28:]
-		while i < 16:
-			j = 0
-			while j < des.__left_rotations[i]:
-				self.L.append(self.L[0])
-				del self.L[0]
-
-				self.R.append(self.R[0])
-				del self.R[0]
-
-				j += 1
-
-			self.Kn[i] = self.__permutate(des.__pc2, self.L + self.R)
-
-			i += 1
+		key_bits = self.__String_to_BitList(self.getKey())
+		key = self.__permutate(des.__pc1, key_bits)
+		L = deque(key[:28])
+		R = deque(key[28:])
+		for i in range(16):
+			# Rotate left by the number specified in left_rotations
+			L.rotate(-des.__left_rotations[i])
+			R.rotate(-des.__left_rotations[i])
+			self.Kn[i] = self.__permutate(des.__pc2, list(L) + list(R))
 
 	def __des_crypt(self, block, crypt_type):
 		"""Crypt the block of data through DES bit-manipulation"""
@@ -564,8 +536,8 @@ class RFBProtocol:
 		result = self.sock.recv(4)
 		(method,) = unpack("!I", result)
 		if method == 0:
-			(lenght,) = unpack("!I", self.sock.recv(4))
-			self.fail_message = self.sock.recv(int(lenght))
+			(length,) = unpack("!I", self.sock.recv(4))
+			self.fail_message = self.sock.recv(int(length))
 			raise Exception(self.fail_message)
 		elif method == 1:
 			self.null = True
@@ -1106,8 +1078,8 @@ class BruteEngine:
 
     def init(self):
         global lock, semaphore
-        lock = Lock()
-        semaphore = Semaphore(int(CONFIG['brute_threads']))
+        lock = threading.Lock()
+        semaphore = threading.Semaphore(int(CONFIG['brute_threads']))
         self.results = open(FILES['results'], 'a')
         self.passwords = list()
         self.servers = list()
