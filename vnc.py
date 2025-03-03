@@ -14,7 +14,9 @@ import time
 from threading import Lock, Semaphore
 from sys import stdout
 from struct import pack, unpack
-from cStringIO import StringIO # type: ignore
+from io import StringIO as StringIO
+from Crypto.Cipher import DES
+
 # Define the colors
 RED = "\033[31m"
 GREEN = "\033[32m"
@@ -29,7 +31,7 @@ RESET_COLOR = "\033[0m"
 
 # Constants and configurations
 VERSION = "0.0.2"
-CODENAME = "HUNTER"
+CODENAME = "SCANNER HUNTER"
 ASCII_TITLE = BOLD + GREEN + r"""
  .========.
  ||_______||
@@ -480,7 +482,7 @@ class des(_baseDes):
 		if sys.version_info[0] < 3:
 			return ''.join(result)
 		else:
-			return bytes.fromhex('').join(result)
+			return b''.join(result)
 
 	def encrypt(self, data, pad=None, padmode=None):
 		data = self._guardAgainstUnicode(data)
@@ -571,16 +573,19 @@ class RFBProtocol:
 		self.sock.send(response)
 		
 	def des_enc(self, key, string):
+		# Transform key bits as in your current code
 		newkey = []
 		for ki in range(len(key)):
 			bsrc = ord(key[ki])
 			btgt = 0
 			for i in range(8):
 				if bsrc & (1 << i):
-					btgt = btgt | (1 << 7-i)
+					btgt |= (1 << (7-i))
 			newkey.append(chr(btgt))
-		DES = des("".join(newkey))
-		return DES.encrypt(string)
+		newkey = "".join(newkey)
+		# Use PyCrypto's DES in ECB mode for faster encryption
+		cipher = DES.new(newkey, DES.MODE_ECB)
+		return cipher.encrypt(string)
 
 class MiscFunctions:
 	
