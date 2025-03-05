@@ -1146,14 +1146,12 @@ class BruteEngine:
             rfb.close()
             with lock:
                 self.attempt_count += 1
-                if rfb.RFB and rfb.connected:
-                    if server[0] not in self.processed_ips:
-                        result_data = "{}:{}-{}-[{}]\n".format(server[0], server[1], password, rfb.name)
-                        self.results.write(result_data)
-                        self.results.flush()
-                        self.processed_ips.add(server[0])
-                        self.success_count += 1
-                        self.servers.remove(server)
+                if rfb.RFB and rfb.connected and server[0] not in self.processed_ips:
+                    result_data = "{}:{}-{}-[{}]\n".format(server[0], server[1], password, rfb.name)
+                    self.results.write(result_data)
+                    self.results.flush()
+                    self.processed_ips.add(server[0])
+                    self.success_count += 1
         except Exception as e:
             with lock:
                 self.exception_count += 1
