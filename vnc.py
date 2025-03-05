@@ -1231,7 +1231,23 @@ class MainEngine:
 
 	def load_config(self):
 		global CONFIG
-		CONFIG = pickle.load(open(FILES['config'], 'rb'))
+		try:
+			with open(FILES['config'], 'rb') as f:
+				CONFIG = pickle.load(f)
+		except Exception as e:
+			sys.stdout.write("Error loading config: {}. Reinitializing default config.\n".format(e))
+			CONFIG = {
+				'scan_range': "119.*.*.*",
+				'scan_port': "5900",
+				'scan_timeout': "5",
+				'scan_threads': "4000",
+				'brute_threads': "250",
+				'brute_timeout': "5",
+				'auto_save': "true",
+				'auto_brute': "true"
+			}
+			with open(FILES['config'], 'wb') as f:
+				pickle.dump(CONFIG, f)
 		
 if __name__ == "__main__":
 	try:
