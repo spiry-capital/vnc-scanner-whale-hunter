@@ -627,11 +627,14 @@ class FilesHandler:
             return False
 
     def file_write(self, location, data="", mode="w"):
+        # if data is binary, force binary mode
+        if isinstance(data, bytes) and 'b' not in mode:
+            mode += "b"
         if mode == "i":
-            with open(location) as oldf:
+            with open(location, 'r' + ("b" if isinstance(data, bytes) else "")) as oldf:
                 old_data = oldf.read()
-            with open(location, 'w') as f:
-                f.write(data.rstrip() + '\n' + old_data.rstrip())
+            with open(location, 'w' + ("b" if isinstance(data, bytes) else "")) as f:
+                f.write(data.rstrip() + (old_data.rstrip() if isinstance(data, str) else old_data))
         else:
             with open(location, mode) as f:
                 f.write(data)
@@ -677,7 +680,8 @@ class Deploy:
 				Files.file_write(file)
 
 		if Files.file_empty(FILES['config']):
-			Files.file_write(FILES['config'], pickle.dumps(CONFIG))
+			with open(FILES['config'], 'wb') as f:
+				f.write(pickle.dumps(CONFIG))
 
 		if Files.file_empty(FILES['passwords']):
 			Files.file_write(FILES['passwords'], DEFAULT_PASSWORDS)
