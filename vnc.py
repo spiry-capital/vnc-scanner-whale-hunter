@@ -6,7 +6,7 @@ import cmd
 import socket
 import threading
 import time
-from Queue import Queue
+from queue import Queue
 from multiprocessing.dummy import Pool as ThreadPool
 from multiprocessing.pool import ThreadPool
 import pickle
@@ -528,9 +528,9 @@ class RFBProtocol:
 		self.sock.settimeout(self.timeout)
 		self.sock.connect((self.host, self.port))
 		result = self.sock.recv(12)
-		if result[:3] == "RFB":
+		if result[:3] == b"RFB":
 			self.RFB = True
-			self.sock.send("RFB 003.003\n")
+			self.sock.send(b"RFB 003.003\n")
 		else:
 			raise Exception("Not RFB")
 			
@@ -576,13 +576,15 @@ class RFBProtocol:
 		# Transform key bits as in your current code
 		newkey = []
 		for ki in range(len(key)):
-			bsrc = ord(key[ki])
+			# If key is a byte string, key[ki] is already an int
+			bsrc = key[ki] if isinstance(key, bytes) else ord(key[ki])
 			btgt = 0
 			for i in range(8):
 				if bsrc & (1 << i):
 					btgt |= (1 << (7-i))
-			newkey.append(chr(btgt))
-		newkey = "".join(newkey)
+			# Build as a byte (or character then encode later)
+			newkey.append(btgt)
+		newkey = bytes(newkey)
 		# Use PyCrypto's DES in ECB mode for faster encryption
 		cipher = DES.new(newkey, DES.MODE_ECB)
 		return cipher.encrypt(string)
@@ -1008,7 +1010,7 @@ class ScanEngine:
     def init(self):
         global semaphore
         semaphore = threading.Semaphore(int(CONFIG['scan_threads']))
-        self.ips_file = open(FILES['ips'], 'a', 0)
+        self.ips_file = open(FILES['ips'], 'a')
         self.current = 0
         self.found = 0
         # Ensure that range calculation produces an all-inclusive range
@@ -1225,7 +1227,7 @@ class MainEngine:
 
 	def load_config(self):
 		global CONFIG
-		CONFIG = pickle.load(open(FILES['config']))
+		CONFIG = pickle.load(open(FILES['config'], 'rb'))
 		
 if __name__ == "__main__":
 	try:
