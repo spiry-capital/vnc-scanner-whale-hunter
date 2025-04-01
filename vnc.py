@@ -6,7 +6,7 @@ import cmd
 import socket
 import threading
 import time
-from queue import Queue
+from Queue import Queue
 from multiprocessing.dummy import Pool as ThreadPool
 from multiprocessing.pool import ThreadPool
 import pickle
@@ -528,9 +528,9 @@ class RFBProtocol:
 		self.sock.settimeout(self.timeout)
 		self.sock.connect((self.host, self.port))
 		result = self.sock.recv(12)
-		if result[:3] == b"RFB":
+		if result[:3] == "RFB":
 			self.RFB = True
-			self.sock.send(b"RFB 003.003\n")
+			self.sock.send("RFB 003.003\n")
 		else:
 			raise Exception("Not RFB")
 			
@@ -576,15 +576,13 @@ class RFBProtocol:
 		# Transform key bits as in your current code
 		newkey = []
 		for ki in range(len(key)):
-			# If key is a byte string, key[ki] is already an int
-			bsrc = key[ki] if isinstance(key, bytes) else ord(key[ki])
+			bsrc = ord(key[ki])
 			btgt = 0
 			for i in range(8):
 				if bsrc & (1 << i):
 					btgt |= (1 << (7-i))
-			# Build as a byte (or character then encode later)
-			newkey.append(btgt)
-		newkey = bytes(newkey)
+			newkey.append(chr(btgt))
+		newkey = "".join(newkey)
 		# Use PyCrypto's DES in ECB mode for faster encryption
 		cipher = DES.new(newkey, DES.MODE_ECB)
 		return cipher.encrypt(string)
@@ -627,14 +625,11 @@ class FilesHandler:
             return False
 
     def file_write(self, location, data="", mode="w"):
-        # if data is binary, force binary mode
-        if isinstance(data, bytes) and 'b' not in mode:
-            mode += "b"
         if mode == "i":
-            with open(location, 'r' + ("b" if isinstance(data, bytes) else "")) as oldf:
+            with open(location) as oldf:
                 old_data = oldf.read()
-            with open(location, 'w' + ("b" if isinstance(data, bytes) else "")) as f:
-                f.write(data.rstrip() + (old_data.rstrip() if isinstance(data, str) else old_data))
+            with open(location, 'w') as f:
+                f.write(data.rstrip() + '\n' + old_data.rstrip())
         else:
             with open(location, mode) as f:
                 f.write(data)
@@ -680,8 +675,7 @@ class Deploy:
 				Files.file_write(file)
 
 		if Files.file_empty(FILES['config']):
-			with open(FILES['config'], 'wb') as f:
-				f.write(pickle.dumps(CONFIG))
+			Files.file_write(FILES['config'], pickle.dumps(CONFIG))
 
 		if Files.file_empty(FILES['passwords']):
 			Files.file_write(FILES['passwords'], DEFAULT_PASSWORDS)
@@ -1014,7 +1008,7 @@ class ScanEngine:
     def init(self):
         global semaphore
         semaphore = threading.Semaphore(int(CONFIG['scan_threads']))
-        self.ips_file = open(FILES['ips'], 'a')
+        self.ips_file = open(FILES['ips'], 'a', 0)
         self.current = 0
         self.found = 0
         # Ensure that range calculation produces an all-inclusive range
@@ -1231,23 +1225,7 @@ class MainEngine:
 
 	def load_config(self):
 		global CONFIG
-		try:
-			with open(FILES['config'], 'rb') as f:
-				CONFIG = pickle.load(f)
-		except Exception as e:
-			sys.stdout.write("Error loading config: {}. Reinitializing default config.\n".format(e))
-			CONFIG = {
-				'scan_range': "119.*.*.*",
-				'scan_port': "5900",
-				'scan_timeout': "5",
-				'scan_threads': "4000",
-				'brute_threads': "250",
-				'brute_timeout': "5",
-				'auto_save': "true",
-				'auto_brute': "true"
-			}
-			with open(FILES['config'], 'wb') as f:
-				pickle.dump(CONFIG, f)
+		CONFIG = pickle.load(open(FILES['config']))
 		
 if __name__ == "__main__":
 	try:
@@ -1257,4 +1235,3 @@ if __name__ == "__main__":
 		if CONFIG['auto_save'] == "true":
 			Misc.save_config()
 		sys.exit("\n\n\t...Exiting...\n")
-
