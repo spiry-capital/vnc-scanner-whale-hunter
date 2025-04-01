@@ -8,14 +8,13 @@ import threading
 import time
 from Queue import Queue
 from multiprocessing.dummy import Pool as ThreadPool
-from multiprocessing.pool import ThreadPool
 import pickle
-import time
 from threading import Lock, Semaphore
 from sys import stdout
 from struct import pack, unpack
 from io import StringIO as StringIO
 from Crypto.Cipher import DES
+# (Removed duplicate 'ThreadPool' import and duplicate 'time' import)
 
 # Define the colors
 RED = "\033[31m"
