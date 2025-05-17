@@ -22,7 +22,7 @@ def batcher(iterable, n):
         yield batch
 
 def scan_range(ip_iter, port, timeout, threads, total):
-    found = []
+    found_count = 0
     current = 0
     start_time = time.time()
     with open("output/ips.txt", "a") as f:
@@ -33,13 +33,13 @@ def scan_range(ip_iter, port, timeout, threads, total):
                     result = future.result()
                     current += 1
                     if result:
-                        found.append(result)
                         f.write(result + "\n")
                         f.flush()
+                        found_count += 1
                         matrix_progress_highlight(current, total)
-                        found_box(len(found), result, "-")
+                        found_box(found_count, result, "-")
                     else:
                         matrix_progress(current, total)
     duration = time.time() - start_time
-    cyberpunk_summary(len(found), total, duration, mode="SCAN")
-    return found 
+    cyberpunk_summary(found_count, total, duration, mode="SCAN")
+    return None 
