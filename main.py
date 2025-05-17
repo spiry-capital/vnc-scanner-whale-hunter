@@ -42,6 +42,7 @@ def main():
     parser.add_argument("--range", type=str, default=DEFAULT_CONFIG["scan_range"], help="IP range (wildcard, e.g. 192.168.1.*)")
     parser.add_argument("--port", type=int, default=DEFAULT_CONFIG["scan_port"], help="VNC port")
     parser.add_argument("--threads", type=int, default=DEFAULT_CONFIG["scan_threads"], help="Threads for scanning")
+    parser.add_argument("--timeout", type=float, default=None, help="Timeout pentru scanare (secunde, minim 3)")
     parser.add_argument("--passwords", type=str, nargs="*", default=None, help="Passwords for brute-force")
     args = parser.parse_args()
 
@@ -56,11 +57,15 @@ def main():
         ip_gen = ip_range_from_wildcard(args.range)
         total_ips = count_ips_in_wildcard(args.range)
         print_scan_header(args.range, args.port, args.threads, total_ips)
-        found = scan_range(ip_gen, args.port, DEFAULT_CONFIG["scan_timeout"], args.threads, total_ips)
+        scan_timeout = args.timeout if args.timeout is not None else DEFAULT_CONFIG["scan_timeout"]
+        if scan_timeout < 3:
+            scan_timeout = 3
+        found = scan_range(ip_gen, args.port, scan_timeout, args.threads, total_ips)
         with open("output/ips.txt", "a") as f:
-            for ip in found:
-                f.write(ip + "\n")
-        print(f"Found {len(found)} VNC servers. Results saved in output/ips.txt")
+            if found:
+                for ip in found:
+                    f.write(ip + "\n")
+        print(f"Found {found if found else 0} VNC servers. Results saved in output/ips.txt")
 
     if args.brute:
         print("Brute-forcing...")
