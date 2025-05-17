@@ -24,6 +24,8 @@ import re
 from scan import scan_worker
 from rich.box import DOUBLE
 import itertools
+from brute import brute_force
+from config import DEFAULT_CONFIG
 
 CYBERPUNK = "bold magenta on black"
 console = Console()
@@ -183,10 +185,10 @@ def master_ui(subranges, progress_dict, total_total, refresh=1):
             # Global stats table
             stats_table = Table.grid(expand=True)
             stats_table.add_row(
-                f"[bold green]Progress:[/bold green] [bold white on green]{total_progress}/{total_total}[/]",
+                f"[bold green]Progress:[/bold green] [bold black on bright_green]{total_progress}/{total_total}[/]",
                 f"[bold cyan]Found:[/bold cyan] [bold white on cyan]{total_found}[/]",
                 f"[bold magenta]Timeouts:[/bold magenta] [bold white on magenta]{total_timeouts}[/]",
-                f"[bold red]Errors:[/bold red] [bold white on red]{total_errors}[/]",
+                f"[bold red]Errors:[/bold red] [bold black on bright_red]{total_errors}[/]",
                 f"[bold yellow]Rate:[/bold yellow] [bold black on yellow]{total_rate:.2f} IPs/sec[/]",
                 f"[bold white]ETA:[/bold white] [bold black on white]{eta_str}[/]",
                 f"[bold blue]Active:[/bold blue] [bold white on blue]{active}/{len(subranges)}[/]"
@@ -252,6 +254,7 @@ def main():
     batch = int(questionary.text("[CYBERPUNK] Batch size [25]:", default="25").ask().strip())
     max_parallel = int(questionary.text("[CYBERPUNK] Max parallel [4]:", default="4").ask().strip())
     timeout = float(questionary.text("[CYBERPUNK] Timeout [5]:", default="5").ask().strip())
+    do_brute = questionary.confirm("Lansez bruteforce automat după scanare? (Y/n)").ask()
     console.print(Panel(f"[bold cyan]Range:[/bold cyan] {ip_range}\n[bold cyan]Threads:[/bold cyan] {threads}\n[bold cyan]Batch:[/bold cyan] {batch}\n[bold cyan]Max parallel:[/bold cyan] {max_parallel}\n[bold cyan]Timeout:[/bold cyan] {timeout}", title="[bold magenta]Ready?[/bold magenta]", style=CYBERPUNK))
     if not questionary.confirm("Lansez scanarea? (Y/n)").ask():
         console.print("[bold red]Anulat![bold red]")
@@ -279,6 +282,30 @@ def main():
             [(subr, 5900, timeout, threads, subranges_totals[idx], progress_dict, idx) for idx, subr in enumerate(subranges)]
         )
         master_ui(subranges, progress_dict, total_total, refresh=1)
+    # După scanare, dacă userul a ales bruteforce:
+    if do_brute:
+        # Încarcă IP-urile din output/ips.txt
+        ips = []
+        try:
+            with open("output/ips.txt") as f:
+                for line in f:
+                    ip = line.strip()
+                    if ip:
+                        ips.append(ip)
+        except Exception as e:
+            print(f"[bold red]Eroare la citirea output/ips.txt: {e}[/bold red]")
+            return
+        if not ips:
+            print("[bold yellow]Nu există IP-uri de bruteforce în output/ips.txt![/bold yellow]")
+            return
+        # Încarcă parolele din config sau input/passwords.txt
+        passwords = DEFAULT_CONFIG.get("passwords", ["1234", "admin", "password"])
+        port = DEFAULT_CONFIG.get("scan_port", 5900)
+        brute_threads = DEFAULT_CONFIG.get("brute_threads", 50)
+        brute_timeout = DEFAULT_CONFIG.get("brute_timeout", 10)
+        print("[bold magenta]Pornesc bruteforce...[/bold magenta]")
+        brute_force(ips, port, passwords, brute_timeout, brute_threads)
+        print("[bold green]Bruteforce complete. Successes saved in output/results.txt[/bold green]")
 
 if __name__ == "__main__":
     main() 
