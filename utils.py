@@ -15,10 +15,8 @@ def ip_range_from_wildcard(wildcard: str):
             ranges.append(range(0, 256))
         else:
             ranges.append([int(part)])
-    return [
-        f"{a}.{b}.{c}.{d}"
-        for a in ranges[0]
-        for b in ranges[1]
-        for c in ranges[2]
-        for d in ranges[3]
-    ] 
+    for a in ranges[0]:
+        for b in ranges[1]:
+            for c in ranges[2]:
+                for d in ranges[3]:
+                    yield f"{a}.{b}.{c}.{d}" 
