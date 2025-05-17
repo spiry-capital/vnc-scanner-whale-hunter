@@ -26,6 +26,8 @@ from rich.box import DOUBLE
 import itertools
 from brute import brute_force
 from config import DEFAULT_CONFIG
+from rdp_scan import scan_worker as rdp_scan_worker
+from rdp_brute import brute_force as rdp_brute_force, load_lines as rdp_load_lines
 
 CYBERPUNK = "bold magenta on black"
 console = Console()
@@ -249,63 +251,133 @@ def cyberpunk_banner():
 # --------- Main (UI Interactiv) ---------
 def main():
     cyberpunk_banner()
-    ip_range = questionary.text("[CYBERPUNK] Range IP (ex: 109.177.*.* sau 5.107.0.0/16):").ask().strip()
-    threads = int(questionary.text("[CYBERPUNK] Threads per scan [50]:", default="50").ask().strip())
-    batch = int(questionary.text("[CYBERPUNK] Batch size [25]:", default="25").ask().strip())
-    max_parallel = int(questionary.text("[CYBERPUNK] Max parallel [4]:", default="4").ask().strip())
-    timeout = float(questionary.text("[CYBERPUNK] Timeout [5]:", default="5").ask().strip())
-    do_brute = questionary.confirm("Lansez bruteforce automat după scanare? (Y/n)").ask()
-    console.print(Panel(f"[bold cyan]Range:[/bold cyan] {ip_range}\n[bold cyan]Threads:[/bold cyan] {threads}\n[bold cyan]Batch:[/bold cyan] {batch}\n[bold cyan]Max parallel:[/bold cyan] {max_parallel}\n[bold cyan]Timeout:[/bold cyan] {timeout}", title="[bold magenta]Ready?[/bold magenta]", style=CYBERPUNK))
-    if not questionary.confirm("Lansez scanarea? (Y/n)").ask():
-        console.print("[bold red]Anulat![bold red]")
+    # Main menu
+    scan_mode = questionary.select(
+        "Ce vrei să scanezi?",
+        choices=[
+            "VNC scan + (opțional brute)",
+            "RDP scan + (opțional brute)",
+            "Iesire"
+        ]
+    ).ask()
+    if scan_mode == "Iesire":
+        print("[bold red]La revedere![/bold red]")
         sys.exit(0)
-    if '/' in ip_range:
-        wildcard_ranges = cidr_to_wildcards(ip_range)
-    else:
-        wildcard_ranges = [ip_range]
-    subranges = []
-    subranges_totals = []
-    for wildcard in wildcard_ranges:
-        if wildcard.count('*') == 1:
-            subranges.append(wildcard)
-            subranges_totals.append(get_ips_per_subrange(wildcard))
+    if scan_mode.startswith("VNC"):
+        ip_range = questionary.text("[CYBERPUNK] Range IP (ex: 109.177.*.* sau 5.107.0.0/16):").ask().strip()
+        threads = int(questionary.text("[CYBERPUNK] Threads per scan [50]:", default="50").ask().strip())
+        batch = int(questionary.text("[CYBERPUNK] Batch size [25]:", default="25").ask().strip())
+        max_parallel = int(questionary.text("[CYBERPUNK] Max parallel [4]:", default="4").ask().strip())
+        timeout = float(questionary.text("[CYBERPUNK] Timeout [5]:", default="5").ask().strip())
+        do_brute = questionary.confirm("Lansez bruteforce automat după scanare? (Y/n)").ask()
+        console.print(Panel(f"[bold cyan]Range:[/bold cyan] {ip_range}\n[bold cyan]Threads:[/bold cyan] {threads}\n[bold cyan]Batch:[/bold cyan] {batch}\n[bold cyan]Max parallel:[/bold cyan] {max_parallel}\n[bold cyan]Timeout:[/bold cyan] {timeout}", title="[bold magenta]Ready?[/bold magenta]", style=CYBERPUNK))
+        if not questionary.confirm("Lansez scanarea? (Y/n)").ask():
+            console.print("[bold red]Anulat![bold red]")
+            sys.exit(0)
+        if '/' in ip_range:
+            wildcard_ranges = cidr_to_wildcards(ip_range)
         else:
-            for s in split_range(wildcard):
-                subranges.append(s)
-                subranges_totals.append(get_ips_per_subrange(s))
-    total_total = sum(subranges_totals)
-    manager = Manager()
-    progress_dict = manager.dict()
-    with Pool(processes=max_parallel) as pool:
-        pool.starmap_async(
-            scan_worker,
-            [(subr, 5900, timeout, threads, subranges_totals[idx], progress_dict, idx) for idx, subr in enumerate(subranges)]
-        )
-        master_ui(subranges, progress_dict, total_total, refresh=1)
-    # După scanare, dacă userul a ales bruteforce:
-    if do_brute:
-        # Încarcă IP-urile din output/ips.txt
-        ips = []
-        try:
-            with open("output/ips.txt") as f:
-                for line in f:
-                    ip = line.strip()
-                    if ip:
-                        ips.append(ip)
-        except Exception as e:
-            print(f"[bold red]Eroare la citirea output/ips.txt: {e}[/bold red]")
-            return
-        if not ips:
-            print("[bold yellow]Nu există IP-uri de bruteforce în output/ips.txt![/bold yellow]")
-            return
-        # Încarcă parolele din config sau input/passwords.txt
-        passwords = DEFAULT_CONFIG.get("passwords", ["1234", "admin", "password"])
-        port = DEFAULT_CONFIG.get("scan_port", 5900)
-        brute_threads = DEFAULT_CONFIG.get("brute_threads", 50)
-        brute_timeout = DEFAULT_CONFIG.get("brute_timeout", 10)
-        print("[bold magenta]Pornesc bruteforce...[/bold magenta]")
-        brute_force(ips, port, passwords, brute_timeout, brute_threads)
-        print("[bold green]Bruteforce complete. Successes saved in output/results.txt[/bold green]")
+            wildcard_ranges = [ip_range]
+        subranges = []
+        subranges_totals = []
+        for wildcard in wildcard_ranges:
+            if wildcard.count('*') == 1:
+                subranges.append(wildcard)
+                subranges_totals.append(get_ips_per_subrange(wildcard))
+            else:
+                for s in split_range(wildcard):
+                    subranges.append(s)
+                    subranges_totals.append(get_ips_per_subrange(s))
+        total_total = sum(subranges_totals)
+        manager = Manager()
+        progress_dict = manager.dict()
+        with Pool(processes=max_parallel) as pool:
+            pool.starmap_async(
+                scan_worker,
+                [(subr, 5900, timeout, threads, subranges_totals[idx], progress_dict, idx) for idx, subr in enumerate(subranges)]
+            )
+            master_ui(subranges, progress_dict, total_total, refresh=1)
+        # După scanare, dacă userul a ales bruteforce:
+        if do_brute:
+            ips = []
+            try:
+                with open("output/ips.txt") as f:
+                    for line in f:
+                        ip = line.strip()
+                        if ip:
+                            ips.append(ip)
+            except Exception as e:
+                print(f"[bold red]Eroare la citirea output/ips.txt: {e}[/bold red]")
+                return
+            if not ips:
+                print("[bold yellow]Nu există IP-uri de bruteforce în output/ips.txt![/bold yellow]")
+                return
+            passwords = DEFAULT_CONFIG.get("passwords", ["1234", "admin", "password"])
+            port = DEFAULT_CONFIG.get("scan_port", 5900)
+            brute_threads = DEFAULT_CONFIG.get("brute_threads", 50)
+            brute_timeout = DEFAULT_CONFIG.get("brute_timeout", 10)
+            print("[bold magenta]Pornesc bruteforce...[/bold magenta]")
+            brute_force(ips, port, passwords, brute_timeout, brute_threads)
+            print("[bold green]Bruteforce complete. Successes saved in output/results.txt[/bold green]")
+    elif scan_mode.startswith("RDP"):
+        ip_range = questionary.text("[CYBERPUNK] Range IP (ex: 109.177.*.* sau 5.107.0.0/16):").ask().strip()
+        threads = int(questionary.text("[CYBERPUNK] Threads per scan [50]:", default="50").ask().strip())
+        batch = int(questionary.text("[CYBERPUNK] Batch size [25]:", default="25").ask().strip())
+        max_parallel = int(questionary.text("[CYBERPUNK] Max parallel [4]:", default="4").ask().strip())
+        timeout = float(questionary.text("[CYBERPUNK] Timeout [5]:", default="5").ask().strip())
+        do_brute = questionary.confirm("Lansez bruteforce automat după scanare? (Y/n)").ask()
+        console.print(Panel(f"[bold cyan]Range:[/bold cyan] {ip_range}\n[bold cyan]Threads:[/bold cyan] {threads}\n[bold cyan]Batch:[/bold cyan] {batch}\n[bold cyan]Max parallel:[/bold cyan] {max_parallel}\n[bold cyan]Timeout:[/bold cyan] {timeout}", title="[bold magenta]Ready?[/bold magenta]", style=CYBERPUNK))
+        if not questionary.confirm("Lansez scanarea? (Y/n)").ask():
+            console.print("[bold red]Anulat![bold red]")
+            sys.exit(0)
+        if '/' in ip_range:
+            wildcard_ranges = cidr_to_wildcards(ip_range)
+        else:
+            wildcard_ranges = [ip_range]
+        subranges = []
+        subranges_totals = []
+        for wildcard in wildcard_ranges:
+            if wildcard.count('*') == 1:
+                subranges.append(wildcard)
+                subranges_totals.append(get_ips_per_subrange(wildcard))
+            else:
+                for s in split_range(wildcard):
+                    subranges.append(s)
+                    subranges_totals.append(get_ips_per_subrange(s))
+        total_total = sum(subranges_totals)
+        manager = Manager()
+        progress_dict = manager.dict()
+        with Pool(processes=max_parallel) as pool:
+            pool.starmap_async(
+                rdp_scan_worker,
+                [(subr, 3389, timeout, threads, subranges_totals[idx], progress_dict, idx) for idx, subr in enumerate(subranges)]
+            )
+            master_ui(subranges, progress_dict, total_total, refresh=1)
+        # După scanare, dacă userul a ales bruteforce:
+        if do_brute:
+            ips = []
+            try:
+                with open("output/rdp_ips.txt") as f:
+                    for line in f:
+                        ip = line.strip()
+                        if ip:
+                            ips.append(ip)
+            except Exception as e:
+                print(f"[bold red]Eroare la citirea output/rdp_ips.txt: {e}[/bold red]")
+                return
+            if not ips:
+                print("[bold yellow]Nu există IP-uri de bruteforce în output/rdp_ips.txt![/bold yellow]")
+                return
+            users = rdp_load_lines("input/users.txt")
+            passwords = rdp_load_lines("input/passwords.txt")
+            if not users or not passwords:
+                print("[bold red]input/users.txt sau input/passwords.txt lipsesc sau sunt goale![/bold red]")
+                return
+            brute_threads = DEFAULT_CONFIG.get("brute_threads", 32)
+            brute_timeout = DEFAULT_CONFIG.get("brute_timeout", 8)
+            print("[bold magenta]Pornesc bruteforce RDP...[/bold magenta]")
+            rdp_brute_force(ips, users, passwords, brute_timeout, brute_threads)
+            print("[bold green]Bruteforce RDP complete. Successes saved in output/rdp_results.txt[/bold green]")
 
 if __name__ == "__main__":
     main() 

@@ -10,3 +10,7 @@ output/ips.txt
 output/results.txt
 output/results.txt
 output/live.log
+/__pycache__
+/output
+/output
+output/live.log
