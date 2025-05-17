@@ -56,7 +56,7 @@ def main():
         ip_gen = ip_range_from_wildcard(args.range)
         total_ips = count_ips_in_wildcard(args.range)
         print_scan_header(args.range, args.port, args.threads, total_ips)
-        found = scan_range(ip_gen, args.port, DEFAULT_CONFIG["scan_timeout"], args.threads)
+        found = scan_range(ip_gen, args.port, DEFAULT_CONFIG["scan_timeout"], args.threads, total_ips)
         with open("output/ips.txt", "a") as f:
             for ip in found:
                 f.write(ip + "\n")

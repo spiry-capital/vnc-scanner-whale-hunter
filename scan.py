@@ -12,14 +12,13 @@ def scan_ip(ip, port, timeout):
     except Exception:
         return None
 
-def scan_range(ip_list, port, timeout, threads):
+def scan_range(ip_iter, port, timeout, threads, total):
     found = []
-    total = len(ip_list)
     current = 0
     start_time = time.time()
     with open("output/ips.txt", "a") as f:
         with ThreadPoolExecutor(max_workers=threads) as executor:
-            futures = {executor.submit(scan_ip, ip, port, timeout): ip for ip in ip_list}
+            futures = {executor.submit(scan_ip, ip, port, timeout): ip for ip in ip_iter}
             for future in as_completed(futures):
                 result = future.result()
                 current += 1
