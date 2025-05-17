@@ -3,7 +3,6 @@ import socket
 from matrix_ui import found_box, matrix_progress_highlight, cyberpunk_summary
 import time
 from itertools import islice
-from collections import deque
 from rich.console import Console, Group
 from rich.panel import Panel
 from rich.live import Live
@@ -49,8 +48,6 @@ def scan_range(ip_iter, port, timeout, threads, total):
     logf = open("output/live.log", "a")
     console = Console()
     batch_size = DEFAULT_CONFIG.get("scan_batch_size", 10000)
-    min_threads = 20
-    min_batch = DEFAULT_CONFIG.get("scan_min_batch", 500)
     with Live(console=console, refresh_per_second=10) as live:
         with open("output/ips.txt", "a") as f:
             for ip_batch in batcher(ip_iter, batch_size):
@@ -73,29 +70,29 @@ def scan_range(ip_iter, port, timeout, threads, total):
                                 timeout_count += 1
                             elif err == 'refused':
                                 logf.write(f"REFUSED {futures[future]}\n")
+                                error_count += 1
                             elif err and err != 'unknown':
                                 error_count += 1
                                 logf.write(f"ERROR {futures[future]}: {err}\n")
-                        # Statistica live cyberpunk
-                        if current % 100 == 0 or current == total:
-                            table = Table.grid()
-                            table.add_row(
-                                f"[bold green]Progress:[/bold green] {current}/{total}",
-                                f"[bold cyan]Found:[/bold cyan] {found_count}",
-                                f"[bold magenta]Timeouts:[/bold magenta] {timeout_count}",
-                                f"[bold red]Errors:[/bold red] {error_count}",
-                                f"[bold yellow]Rate:[/bold yellow] {rate:.2f} IPs/sec"
-                            )
-                            panel = Panel(
-                                Group(
-                                    matrix_line(),
-                                    table,
-                                    matrix_line()
-                                ),
-                                title=f"[bold green]MATRIX LIVE STATS[/bold green] [bold yellow]Threads: {threads} Batch: {batch_size}[/bold yellow]",
-                                border_style="bright_green"
-                            )
-                            live.update(panel)
+                        # Statistica live cyberpunk - actualizez după fiecare rezultat
+                        table = Table.grid()
+                        table.add_row(
+                            f"[bold green]Progress:[/bold green] {current}/{total}",
+                            f"[bold cyan]Found:[/bold cyan] {found_count}",
+                            f"[bold magenta]Timeouts:[/bold magenta] {timeout_count}",
+                            f"[bold red]Errors:[/bold red] {error_count}",
+                            f"[bold yellow]Rate:[/bold yellow] {rate:.2f} IPs/sec"
+                        )
+                        panel = Panel(
+                            Group(
+                                matrix_line(),
+                                table,
+                                matrix_line()
+                            ),
+                            title=f"[bold green]MATRIX LIVE STATS[/bold green] [bold yellow]Threads: {threads} Batch: {batch_size}[/bold yellow]",
+                            border_style="bright_green"
+                        )
+                        live.update(panel)
                 time.sleep(0.05)  # delay mic între batch-uri
     logf.close()
     duration = time.time() - start_time

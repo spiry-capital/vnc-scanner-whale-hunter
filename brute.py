@@ -61,14 +61,14 @@ def brute_force(ips, port, passwords, timeout, threads):
                             logf.write(f"TIMEOUT {ip}\n")
                         elif err == 'refused':
                             logf.write(f"REFUSED {ip}\n")
+                            error_count += 1
                         else:
                             error_count += 1
                             logf.write(f"ERROR {ip}: {err}\n")
-                    # Afișare live status
+                    # Afișare live status - actualizez după fiecare rezultat
                     current = found_count + timeout_count + error_count
                     rate = current / elapsed if elapsed > 0 else 0
-                    if current % 100 == 0 or (total and current == total):
-                        print(f"\rProgress: {current}{'/' + str(total) if total else ''} | Found: {found_count} | Timeouts: {timeout_count} | Errors: {error_count} | Rate: {rate:.2f} tries/sec", end="")
+                    print(f"\rProgress: {current}{'/' + str(total) if total else ''} | Found: {found_count} | Timeouts: {timeout_count} | Errors: {error_count} | Rate: {rate:.2f} tries/sec", end="")
     logf.close()
     duration = time.time() - start_time
     print()  # newline după progresbar

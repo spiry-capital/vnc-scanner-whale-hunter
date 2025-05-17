@@ -5,6 +5,7 @@ from utils import ip_range_from_wildcard
 from scan import scan_range
 from brute import brute_force
 import os
+# import asyncio  # Eliminat, nu mai este folosit, totul este threaded-only
 from rich.console import Console
 from rich.panel import Panel
 import shutil
@@ -60,12 +61,9 @@ def main():
         scan_timeout = args.timeout if args.timeout is not None else DEFAULT_CONFIG["scan_timeout"]
         if scan_timeout < 3:
             scan_timeout = 3
-        found = scan_range(ip_gen, args.port, scan_timeout, args.threads, total_ips)
-        with open("output/ips.txt", "a") as f:
-            if found:
-                for ip in found:
-                    f.write(ip + "\n")
-        print(f"Found {found if found else 0} VNC servers. Results saved in output/ips.txt")
+        # asyncio.run(scan_range(ip_gen, args.port, scan_timeout, args.threads, total_ips))
+        scan_range(ip_gen, args.port, scan_timeout, args.threads, total_ips)
+        print(f"Scan complete. Results saved in output/ips.txt")
 
     if args.brute:
         print("Brute-forcing...")
