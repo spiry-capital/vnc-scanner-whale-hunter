@@ -1,10 +1,10 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import socket
-from matrix_ui import matrix_progress, found_box, matrix_progress_highlight, cyberpunk_summary
+from matrix_ui import found_box, matrix_progress_highlight, cyberpunk_summary
 import time
 from itertools import islice
 from collections import deque
-from rich.console import Console
+from rich.console import Console, Group
 from rich.panel import Panel
 from rich.live import Live
 from rich.table import Table
@@ -25,11 +25,15 @@ def scan_ip(ip, port, timeout):
             except Exception as e:
                 sock.close()
                 return None, str(e)
-        sock.close()
-    except socket.timeout:
-        return None, 'timeout'
-    except ConnectionRefusedError:
-        return None, 'refused'
+        elif result == 111:
+            sock.close()
+            return None, 'refused'
+        elif result == 110:
+            sock.close()
+            return None, 'timeout'
+        else:
+            sock.close()
+            return None, f'error_{result}'
     except Exception as e:
         return None, str(e)
     return None, 'unknown'
@@ -71,7 +75,6 @@ def scan_range(ip_iter, port, timeout, threads, total):
                             found_box(found_count, result, "-")
                             logf.write(f"FOUND {result}\n")
                         else:
-                            matrix_progress(current, total)
                             if err == 'timeout':
                                 timeout_count += 1
                                 # nu mai loghez TIMEOUT
@@ -91,7 +94,11 @@ def scan_range(ip_iter, port, timeout, threads, total):
                                 f"[bold yellow]Rate:[/bold yellow] {rate:.2f} IPs/sec"
                             )
                             panel = Panel(
-                                f"{matrix_line()}\n{table}\n{matrix_line()}",
+                                Group(
+                                    matrix_line(),
+                                    table,
+                                    matrix_line()
+                                ),
                                 title="[bold green]MATRIX LIVE STATS[/bold green]",
                                 border_style="bright_green"
                             )
