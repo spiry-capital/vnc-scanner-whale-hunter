@@ -1,10 +1,10 @@
 import os
 
 DEFAULT_CONFIG = {
-    "scan_range": "64.*.*.*",
+    "scan_range": "89.72.*.*",
     "scan_port": 5900,
-    "scan_timeout": 7,
-    "scan_threads": 1000,
+    "scan_timeout": 10,
+    "scan_threads": 500,
     "brute_threads": 50,
     "brute_timeout": 3,
     "auto_save": True,
