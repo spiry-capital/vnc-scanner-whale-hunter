@@ -9,31 +9,22 @@ from rich.panel import Panel
 from rich.live import Live
 from rich.table import Table
 import random
+from config import DEFAULT_CONFIG
 
 def scan_ip(ip, port, timeout):
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(timeout)
-        result = sock.connect_ex((ip, port))
-        if result == 0:
+        with socket.create_connection((ip, port), timeout=timeout) as sock:
             try:
                 sock.sendall(b"RFB 003.003\n")
                 banner = sock.recv(12)
                 if banner.startswith(b"RFB"):
-                    sock.close()
                     return ip, None
             except Exception as e:
-                sock.close()
                 return None, str(e)
-        elif result == 111:
-            sock.close()
-            return None, 'refused'
-        elif result == 110:
-            sock.close()
-            return None, 'timeout'
-        else:
-            sock.close()
-            return None, f'error_{result}'
+    except socket.timeout:
+        return None, 'timeout'
+    except ConnectionRefusedError:
+        return None, 'refused'
     except Exception as e:
         return None, str(e)
     return None, 'unknown'
@@ -57,9 +48,12 @@ def scan_range(ip_iter, port, timeout, threads, total):
     start_time = time.time()
     logf = open("output/live.log", "a")
     console = Console()
+    batch_size = DEFAULT_CONFIG.get("scan_batch_size", 10000)
+    min_threads = 20
+    min_batch = DEFAULT_CONFIG.get("scan_min_batch", 500)
     with Live(console=console, refresh_per_second=10) as live:
         with open("output/ips.txt", "a") as f:
-            for ip_batch in batcher(ip_iter, 10000):
+            for ip_batch in batcher(ip_iter, batch_size):
                 with ThreadPoolExecutor(max_workers=threads) as executor:
                     futures = {executor.submit(scan_ip, ip, port, timeout): ip for ip in ip_batch}
                     for future in as_completed(futures):
@@ -77,10 +71,9 @@ def scan_range(ip_iter, port, timeout, threads, total):
                         else:
                             if err == 'timeout':
                                 timeout_count += 1
-                                # nu mai loghez TIMEOUT
                             elif err == 'refused':
                                 logf.write(f"REFUSED {futures[future]}\n")
-                            else:
+                            elif err and err != 'unknown':
                                 error_count += 1
                                 logf.write(f"ERROR {futures[future]}: {err}\n")
                         # Statistica live cyberpunk
@@ -99,10 +92,11 @@ def scan_range(ip_iter, port, timeout, threads, total):
                                     table,
                                     matrix_line()
                                 ),
-                                title="[bold green]MATRIX LIVE STATS[/bold green]",
+                                title=f"[bold green]MATRIX LIVE STATS[/bold green] [bold yellow]Threads: {threads} Batch: {batch_size}[/bold yellow]",
                                 border_style="bright_green"
                             )
                             live.update(panel)
+                time.sleep(0.05)  # delay mic între batch-uri
     logf.close()
     duration = time.time() - start_time
     print()  # newline după progresbar
