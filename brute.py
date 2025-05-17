@@ -48,6 +48,18 @@ def brute_force(ips, port, passwords, timeout, threads):
                     res, err = future.result()
                     elapsed = time.time() - start_time
                     found = False
+                    # ETA calc
+                    current = found_count + timeout_count + error_count
+                    total_tries = total if total else current
+                    tries_left = total_tries - current
+                    rate = current / elapsed if elapsed > 0 else 0
+                    eta_seconds = int(tries_left / rate) if rate > 0 else 0
+                    eta_h = eta_seconds // 3600
+                    eta_m = (eta_seconds % 3600) // 60
+                    eta_s = eta_seconds % 60
+                    eta_str = f"{eta_h:02}:{eta_m:02}:{eta_s:02}"
+                    if tries_left <= 0:
+                        eta_str = "00:00:00"
                     if res:
                         f.write(f"{res[0]}:{res[1]}\n")
                         f.flush()
@@ -66,9 +78,7 @@ def brute_force(ips, port, passwords, timeout, threads):
                             error_count += 1
                             logf.write(f"ERROR {ip}: {err}\n")
                     # Afișare live status - actualizez după fiecare rezultat
-                    current = found_count + timeout_count + error_count
-                    rate = current / elapsed if elapsed > 0 else 0
-                    print(f"\rProgress: {current}{'/' + str(total) if total else ''} | Found: {found_count} | Timeouts: {timeout_count} | Errors: {error_count} | Rate: {rate:.2f} tries/sec", end="")
+                    print(f"\rProgress: {current}{'/' + str(total_tries) if total else ''} | Found: {found_count} | Timeouts: {timeout_count} | Errors: {error_count} | Rate: {rate:.2f} tries/sec | ETA: {eta_str}", end="")
     logf.close()
     duration = time.time() - start_time
     print()  # newline după progresbar

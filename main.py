@@ -45,6 +45,8 @@ def main():
     parser.add_argument("--threads", type=int, default=DEFAULT_CONFIG["scan_threads"], help="Threads for scanning")
     parser.add_argument("--timeout", type=float, default=None, help="Timeout pentru scanare (secunde, minim 3)")
     parser.add_argument("--passwords", type=str, nargs="*", default=None, help="Passwords for brute-force")
+    parser.add_argument("--no-ui", action="store_true", help="Disable rich.Live UI (pentru slave)")
+    parser.add_argument("--progress-file", type=str, default=None, help="Fișier pentru progres live (pentru slave)")
     args = parser.parse_args()
 
     ensure_dirs()
@@ -61,8 +63,12 @@ def main():
         scan_timeout = args.timeout if args.timeout is not None else DEFAULT_CONFIG["scan_timeout"]
         if scan_timeout < 3:
             scan_timeout = 3
-        # asyncio.run(scan_range(ip_gen, args.port, scan_timeout, args.threads, total_ips))
-        scan_range(ip_gen, args.port, scan_timeout, args.threads, total_ips)
+        # UI/No-UI logic
+        if args.no_ui:
+            from scan import scan_range_no_ui
+            scan_range_no_ui(ip_gen, args.port, scan_timeout, args.threads, total_ips, args.progress_file)
+        else:
+            scan_range(ip_gen, args.port, scan_timeout, args.threads, total_ips)
         print(f"Scan complete. Results saved in output/ips.txt")
 
     if args.brute:
