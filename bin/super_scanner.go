@@ -327,8 +327,6 @@ func mainMenu() {
 			scanAndMaybeBrute("VNC", false)
 		case "VNC Scan + Brute":
 			scanAndMaybeBrute("VNC", true)
-		case "RDP Scan":
-			scanAndMaybeBrute("RDP", false)
 		case "RDP Scan + Brute":
 			scanAndMaybeBrute("RDP", true)
 		case "Brute RDP Only (output/rdp_ips.txt)":
@@ -1045,8 +1043,58 @@ func sciFiWizard() (rangeStr string, threads int, timeout int, vncGoroutines int
 // Poți implementa deepVNCScan ca scanVNCHandshakeFull dar cu parametru pentru versiunea RFB și citire hostname dacă protocolul permite.
 
 func deepVNCScan(ip string, port int, version string) (banner string, flags string, hostname string, ssl bool) {
-	// TODO: Implement handshake complet, security types, hostname extraction
-	return "N/A", "N/A", "N/A", false
+	// Implement handshake complet pentru VNC
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", ip, port), 10*time.Second)
+	if err != nil {
+		return "", "", "", false
+	}
+	defer conn.Close()
+
+	// Trimite versiunea RFB
+	conn.Write([]byte(version))
+
+	// Citește security types
+	secTypeCount := make([]byte, 1)
+	conn.Read(secTypeCount)
+	count := int(secTypeCount[0])
+
+	// Procesează security types
+	if version >= "RFB 005.000" {
+		secTypes := make([]byte, count*2)
+		conn.Read(secTypes)
+		for i := 0; i < len(secTypes); i += 2 {
+			t := binary.BigEndian.Uint16(secTypes[i : i+2])
+			switch t {
+			case 2:
+				flags += " [VNC AUTH]"
+			case 19:
+				flags += " [VeNCrypt]"
+			}
+		}
+	} else {
+		secTypes := make([]byte, count)
+		conn.Read(secTypes)
+		for _, t := range secTypes {
+			switch t {
+			case 2:
+				flags += " [VNC AUTH]"
+			case 19:
+				flags += " [VeNCrypt]"
+			}
+		}
+	}
+
+	// Citește hostname dacă există
+	header := make([]byte, 24)
+	conn.Read(header)
+	nameLen := binary.BigEndian.Uint32(header[20:24])
+	if nameLen > 0 {
+		name := make([]byte, nameLen)
+		conn.Read(name)
+		hostname = string(name)
+	}
+
+	return version, flags, hostname, false
 }
 
 func deepVNCScanSSL(ip string, port int, version string) (banner string, flags string, hostname string, ssl bool) {
